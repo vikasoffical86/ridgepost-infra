@@ -1,4 +1,4 @@
-# Ridgepost https://github.com/vikasoffical86/ridgepost-infra PLACEHOLDER
+# Ridgepost https://github.com/vikasoffical86/ridgepost-infra 6d6d9f7
 # aws~>5.70; contract PASS; FARGATE base=1 min_healthy=100; VPCE ecr/secrets/logs
 # deletion_protection; coalesce(restored_*); manage_master_user_password; USER 65532
 
