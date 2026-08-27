@@ -81,6 +81,41 @@ resource "aws_vpc_endpoint" "s3" {
   tags              = { Name = "${var.name}-s3-gw" }
 }
 
+# Degraded mode when single NAT AZ dies: ECS still reaches AWS APIs via private DNS.
+# ~$7.3/mo each × 4 ≈ $29 — keeps stack under $150 without a second NAT.
+resource "aws_security_group" "vpce" {
+  name        = "${var.name}-vpce"
+  description = "Interface VPC endpoints; HTTPS from ECS only"
+  vpc_id      = aws_vpc.this.id
+  ingress {
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs.id]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+locals {
+  interface_services = ["ecr.api", "ecr.dkr", "secretsmanager", "logs"]
+}
+
+resource "aws_vpc_endpoint" "interface" {
+  for_each            = toset(local.interface_services)
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${data.aws_region.here.name}.${each.value}"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.vpce.id]
+  private_dns_enabled = true
+  tags                = { Name = "${var.name}-vpce-${each.value}" }
+}
+
 resource "aws_security_group" "alb" {
   name        = "${var.name}-alb"
   description = "ALB HTTPS/HTTP; egress only to ECS :8080"
@@ -108,7 +143,7 @@ resource "aws_security_group" "alb" {
 
 resource "aws_security_group" "ecs" {
   name        = "${var.name}-ecs"
-  description = "ECS tasks; egress HTTPS via NAT + Postgres to private CIDRs"
+  description = "ECS tasks; HTTPS via NAT/VPCE + Postgres to private CIDRs"
   vpc_id      = aws_vpc.this.id
   ingress {
     from_port       = 8080

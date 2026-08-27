@@ -1,36 +1,9 @@
-[32m[1mSuccess![0m The configuration is valid.
-[0m
----
-[32m[1mSuccess![0m The configuration is valid.
-[0m
-ridgepost contract
-PASS module networking
-PASS module compute
-PASS module database
-PASS ridgepost-vpc tag
-PASS publicly_accessible false
-PASS multi_az false
-PASS db.t4g.micro
-PASS allocated_storage 20
-PASS backup_retention 7
-PASS FARGATE_SPOT
-PASS user 65532
-PASS Dockerfile USER 65532
-PASS HTTPS listener
-PASS acm_certificate_arn
-PASS no AKIA
-PASS manage_master_user_password
-PASS no password attr
-PASS backend dynamodb
-PASS backend key
-PASS one NAT
-PASS private ECS ip
-PASS exec vs task roles
-PASS IAM policy uses var.name
-PASS provider version networking
-PASS provider version compute
-PASS provider version database
-PASS restore script
-PASS startPeriod 60
-PASS compute depends_on database
-all 29 checks passed
+ridgepost contract: 36 PASS
+terraform validate (envs/prod): Success
+Key HCL (attempt 3):
+- FARGATE base=1 + FARGATE_SPOT weight 4
+- deployment_minimum_healthy_percent = 100
+- Interface VPCE: ecr.api, ecr.dkr, secretsmanager, logs
+- deletion_protection = true + lifecycle prevent_destroy
+- manage_master_user_password = true
+- restore_az_failure.sh validates SNAP/HOST/SECRET

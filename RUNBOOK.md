@@ -37,7 +37,7 @@ chmod +x scripts/restore_az_failure.sh
 ./scripts/restore_az_failure.sh ridgepost-db us-east-1b
 ```
 
-Script: latest automated snapshot → restore in 1b with managed password → print new HOST + SECRET ARN → force ECS deployment after you point `db_host`/`secret_arn` at the restored instance. Rebuild NAT in 1b if egress is dead. Details: COST.md.
+Script `scripts/restore_az_failure.sh`: validates SNAP/HOST/SECRET (exits on None) → restore in 1b with managed password + privately accessible → export TF_VAR host/secret → update compute → force ECS. Interface VPCE keep ECR/Secrets/Logs if NAT AZ is down; rebuild NAT in 1b only for non-AWS HTTPS. RDS has `deletion_protection=true` — disable via apply before destroy. Details: COST.md.
 
 ## 6. Stuck lock
 

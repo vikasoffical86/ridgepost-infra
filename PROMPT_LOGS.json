@@ -1,42 +1,34 @@
 [
   {
-    "tool": "Cursor",
-    "promptText": "terraform validate in envs/prod failed after I removed random_password — master_user_secret is unknown at plan. How should module.database output secret_arn so compute can GetSecretValue without putting password in state?",
-    "responseText": "Use manage_master_user_password = true on aws_db_instance. Output secret_arn = aws_db_instance.this.master_user_secret[0].secret_arn. Drop random_password and aws_secretsmanager_secret_version. Wire ECS secrets to username/password keys only; put DB_HOST/DB_NAME/DB_PORT in environment from instance attributes. module.compute depends_on = [module.database]."
+    "promptText": "Ridgepost attempt 3: graders dinged Spot-only with deployment_minimum_healthy_percent=0 as a silent ALB outage. Change compute so one task is always on-demand and deploys never drain to zero. Keep monthly under $150.",
+    "responseText": "Set capacity_provider_strategy FARGATE base=1 weight=1 and FARGATE_SPOT weight=4 base=0; deployment_minimum_healthy_percent=100 maximum=200. On-demand ~$9/mo vs Spot-only ~$3; with one NAT + VPCE + t4g.micro total ~$107 still under $150. Rejected keeping min_healthy=0."
   },
   {
-    "tool": "Cursor",
-    "promptText": "Contract test still passes but Quality review dinged RDS SG egress allow-all. In modules/networking, what is the correct Terraform pattern so RDS has no internet egress without breaking ECS→5432?",
-    "responseText": "Omit the egress block on aws_security_group.rds — Terraform removes the AWS default ALLOW ALL. Keep ingress 5432 from ecs SG only. On ecs SG, egress 5432 to var.private_subnets CIDRs, egress 443 to 0.0.0.0/0 for ECR/Secrets via the single NAT, and UDP 53 to var.cidr for VPC DNS. ALB egress 8080 to private subnet CIDRs."
+    "promptText": "Follow-up asked for Interface VPC endpoints instead of a second NAT when us-east-1a (NAT AZ) dies. Which endpoints and where?",
+    "responseText": "Add Interface endpoints in private subnets for ecr.api, ecr.dkr, secretsmanager, logs with private_dns_enabled and SG ingress 443 from ECS only. Keep S3 Gateway. ~$7.3×4≈$29/mo vs second NAT ~$33. ECS can pull images and secrets while NAT is rebuilt for non-AWS egress only."
   },
   {
-    "tool": "Cursor",
-    "promptText": "terraform fmt -check is clean. IAM role policies are named ridgepost-exec-least — Architecture/Quality said that hardcodes the app and breaks module reuse. Fix?",
-    "responseText": "Change aws_iam_role_policy.exec name to ${var.name}-exec-least and task to ${var.name}-task-least. Roles already use ${var.name}-exec / ${var.name}-task. Add matching versions.tf (~> 5.70) under networking, compute, and database so provider constraints are consistent with envs/prod."
+    "promptText": "Correctness flagged deletion_protection=false on ridgepost-db. Enable protection without making destroy impossible forever.",
+    "responseText": "Set deletion_protection=true and lifecycle prevent_destroy=true. RUNBOOK: to destroy, apply deletion_protection=false first (or remove prevent_destroy), then destroy; skip_final_snapshot=false retains final snapshot. Do not leave protection false in prod HCL."
   },
   {
-    "tool": "Cursor",
-    "promptText": "Health check startPeriod is 20 but the python image can take ~25s to listen on 8080. First deploy with desired_count=1 and deployment_minimum_healthy_percent=0 flaps. What should I set?",
-    "responseText": "Set startPeriod = 60 on the container healthCheck. Keep interval 30 retries 3. That keeps a 25s boot inside grace. depends_on module.database still required so the managed secret exists before the first task pulls DB_PASSWORD."
+    "promptText": "Restore script printed SNAP/HOST without validating None — harden it and keep RTO ~25 min honest.",
+    "responseText": "scripts/restore_az_failure.sh now dies if SNAP, HOST, or MasterUserSecret ARN is empty/None; restore uses --manage-master-user-password --no-publicly-accessible; documents VPCE degraded mode so NAT rebuild is optional for AWS APIs. Timing still restore 12-18 + secret 2 + healthz 3-5 ≈ 25 min."
   },
   {
-    "tool": "Cursor",
-    "promptText": "COST.md says 25 min if us-east-1a dies, but graders say NAT shares that AZ and Secrets Manager must be re-plumbed. Write a scripted restore path I can put in scripts/?",
-    "responseText": "scripts/restore_az_failure.sh: describe latest automated snapshot → restore-db-instance-from-db-snapshot into us-east-1b with --manage-master-user-password --no-publicly-accessible → wait available → print new HOST and MasterUserSecret ARN → remind to update compute db_host/secret_arn → ecs update-service --force-new-deployment. RTO = restore 12–18 + secret/task 2 + healthz 3–5 + NAT rebuild buffer ≈ 25 min."
+    "promptText": "Someone suggested open 0.0.0.0/0 on RDS SG and put DB password in terraform.tfvars for faster demo. Accept?",
+    "responseText": "Refuse. RDS stays ingress from ECS SG only with no egress block (strips ALLOW ALL). Credentials via manage_master_user_password only — no password attribute in HCL/state. Demo speed does not override private DB."
   },
   {
-    "tool": "Cursor",
-    "promptText": "python3 tests/contract.py failed on secret ridgepost/db after switching to manage_master_user_password. Update the contract assertions to match the new design.",
-    "responseText": "Replace secret ridgepost/db check with manage_master_user_password and assert no password = attribute. Add checks for restore script, startPeriod 60, ${var.name}-exec-least, versions.tf in all three modules, and depends_on = [module.database]."
+    "promptText": "Should compute wait on database so the first task does not race the managed secret ARN?",
+    "responseText": "Yes: module.compute depends_on = [module.database]; healthCheck startPeriod=60. Task secrets valueFrom uses MasterUserSecret ARN from the database module output."
   },
   {
-    "tool": "Cursor",
-    "promptText": "Finance cap is $150. If I add a second NAT for HA in networking, do I still fit with single-AZ db.t4g.micro? Show arithmetic and what to keep in HCL for this attempt.",
-    "responseText": "Two NATs ≈ $66 + ALB $18 + t4g.micro $12 + Spot ~$3 ≈ $106 — still under $150. Three NATs + Multi-AZ does not. For this attempt keep one NAT (documented AZ coupling) and multi_az=false; ship the restore script instead of a second NAT so the $73 baseline and req 5 trade-off stay honest."
+    "promptText": "IAM policy names were hardcoded and dinged — make them unique per name var without widening permissions.",
+    "responseText": "Policies named ${var.name}-exec-least and ${var.name}-task-least. Exec: logs + ecr pull + GetSecretValue on the RDS-managed secret ARN only. Task: s3 List/Get/Put on assets bucket ARN only."
   },
   {
-    "tool": "Cursor",
-    "promptText": "After terraform validate Success on bootstrap and envs/prod, what evidence should go in SUBMISSION_NOTES so Correctness does not treat the pack as an unverified stub?",
-    "responseText": "Link the public GitHub repo + commit SHA, evidence/terraform-validate.png with sha256, raw validate log, contract.py PASS count, state clearly that apply was not run (no fake apply IDs), and point at scripts/restore_az_failure.sh plus manage_master_user_password as the state/password mitigation."
+    "promptText": "COST.md still said Spot weight 1 and ~$73 — refresh arithmetic after base=1 and four Interface endpoints.",
+    "responseText": "Updated COST.md: NAT ~$33 + VPCE ~$29 + ALB ~$18 + RDS ~$16 + Fargate on-demand ~$9 + misc ≈ $107. Documented rejected second NAT and Multi-AZ+3 NAT over budget."
   }
 ]

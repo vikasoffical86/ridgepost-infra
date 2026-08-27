@@ -44,8 +44,16 @@ checks = {
     "provider version compute": (ROOT / "modules/compute/versions.tf").exists(),
     "provider version database": (ROOT / "modules/database/versions.tf").exists(),
     "restore script": "restore-db-instance-from-db-snapshot" in restore,
+    "restore validates SNAP": 'die "no automated snapshot' in restore or "no automated snapshot" in restore,
     "startPeriod 60": "startPeriod = 60" in hcl or "startPeriod             = 60" in hcl,
     "compute depends_on database": "depends_on = [module.database]" in hcl,
+    "deletion_protection true": re.search(r"deletion_protection\s*=\s*true", hcl) is not None,
+    "FARGATE base 1": re.search(r'capacity_provider\s*=\s*"FARGATE"', hcl) is not None
+    and re.search(r"base\s*=\s*1", hcl) is not None,
+    "min healthy 100": re.search(r"deployment_minimum_healthy_percent\s*=\s*100", hcl) is not None,
+    "vpce ecr.api": "ecr.api" in hcl,
+    "vpce secretsmanager": "secretsmanager" in hcl and 'vpc_endpoint_type   = "Interface"' in hcl,
+    "vpce logs": '"logs"' in hcl or "logs" in hcl,
 }
 
 failed = [k for k, ok in checks.items() if not ok]

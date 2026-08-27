@@ -232,9 +232,16 @@ resource "aws_ecs_service" "api" {
     security_groups  = [var.ecs_sg_id]
     assign_public_ip = false
   }
+  # On-demand base keeps one always-on task; Spot weight for future scale-out only.
+  # Avoids ALB empty target group on Spot reclaim (min_healthy=0 was a silent outage).
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE"
+    weight            = 1
+    base              = 1
+  }
   capacity_provider_strategy {
     capacity_provider = "FARGATE_SPOT"
-    weight            = 1
+    weight            = 4
     base              = 0
   }
   load_balancer {
@@ -242,7 +249,7 @@ resource "aws_ecs_service" "api" {
     container_name   = "${var.name}-api"
     container_port   = 8080
   }
-  deployment_minimum_healthy_percent = 0
+  deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
   propagate_tags                     = "SERVICE"
   depends_on                         = [aws_lb_listener.https, aws_ecs_cluster_capacity_providers.this]
