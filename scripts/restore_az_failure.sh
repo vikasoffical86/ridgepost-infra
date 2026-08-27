@@ -51,16 +51,15 @@ echo "    SECRET=${SECRET}"
 echo "==> 3/5 NAT AZ note: Interface VPCE (ecr.api/ecr.dkr/secretsmanager/logs) keep AWS API path."
 echo "    Recreate NAT in ${TARGET_AZ} only if non-AWS HTTPS egress is required."
 
-echo "==> 4/5 Wire compute to new host + secret (terraform apply or new task def)"
+echo "==> 4/5 Reconcile IaC: TF_VAR overrides → terraform apply (no state drift)"
 cat <<EOF
 export TF_VAR_restored_db_host=${HOST}
 export TF_VAR_restored_secret_arn=${SECRET}
-# Set module.compute db_host + secret_arn, then:
-#   cd envs/prod && terraform apply
-# Or register task def with DB_HOST=${HOST} and secrets valueFrom=${SECRET}
+cd envs/prod && terraform apply
+# coalesce() in envs/prod wires module.compute db_host + secret_arn from these vars.
 EOF
 
-echo "==> 5/5 Force ECS roll (requires task def already pointing at new HOST/SECRET)"
+echo "==> 5/5 Force ECS roll after apply registers new task def"
 aws ecs update-service --region "$REGION" --cluster "$CLUSTER" --service "$SERVICE" \
   --force-new-deployment >/dev/null
-echo "Done. RTO budget ~25 min = restore 12-18 + secret/task 2 + healthz 3-5 + buffer."
+echo "Done. RTO budget ~25 min = restore 12-18 + terraform apply 2 + healthz 3-5 + buffer."

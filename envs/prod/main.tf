@@ -34,6 +34,19 @@ variable "container_image" {
   description = "ECR image URI for ridgepost-api (USER 65532)."
 }
 
+# After AZ restore: set these so terraform apply re-wires ECS without state drift.
+variable "restored_db_host" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
+variable "restored_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
+
 module "networking" {
   source          = "../../modules/networking"
   name            = "ridgepost"
@@ -59,9 +72,9 @@ module "compute" {
   alb_sg_id           = module.networking.alb_sg_id
   ecs_sg_id           = module.networking.ecs_sg_id
   acm_certificate_arn = var.acm_certificate_arn
-  secret_arn          = module.database.secret_arn
+  secret_arn          = coalesce(var.restored_secret_arn, module.database.secret_arn)
   container_image     = var.container_image
-  db_host             = module.database.endpoint
+  db_host             = coalesce(var.restored_db_host, module.database.endpoint)
   db_name             = module.database.db_name
   db_port             = module.database.port
   # Wait for RDS + managed secret before ECS can inject DB_USER/DB_PASSWORD.

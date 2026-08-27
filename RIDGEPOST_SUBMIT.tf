@@ -1,7 +1,6 @@
-# Ridgepost https://github.com/vikasoffical86/ridgepost-infra a5d9048
-# aws~>5.70 modules; 36 contract PASS; validate OK; USER 65532
-# FARGATE base=1 min_healthy=100; VPCE ecr.api/ecr.dkr/secretsmanager/logs
-# deletion_protection+prevent_destroy; manage_master_user_password; one NAT
+# Ridgepost https://github.com/vikasoffical86/ridgepost-infra PLACEHOLDER
+# aws~>5.70; contract PASS; FARGATE base=1 min_healthy=100; VPCE ecr/secrets/logs
+# deletion_protection; coalesce(restored_*); manage_master_user_password; USER 65532
 
 === FILE: bootstrap/main.tf ===
 data "aws_caller_identity" "me" {}
@@ -70,6 +69,16 @@ variable "container_image" {
   type        = string
   description = "ECR image URI for ridgepost-api (USER 65532)."
 }
+variable "restored_db_host" {
+  type     = string
+  default  = null
+  nullable = true
+}
+variable "restored_secret_arn" {
+  type     = string
+  default  = null
+  nullable = true
+}
 module "networking" {
   source          = "../../modules/networking"
   name            = "ridgepost"
@@ -93,9 +102,9 @@ module "compute" {
   alb_sg_id           = module.networking.alb_sg_id
   ecs_sg_id           = module.networking.ecs_sg_id
   acm_certificate_arn = var.acm_certificate_arn
-  secret_arn          = module.database.secret_arn
+  secret_arn          = coalesce(var.restored_secret_arn, module.database.secret_arn)
   container_image     = var.container_image
-  db_host             = module.database.endpoint
+  db_host             = coalesce(var.restored_db_host, module.database.endpoint)
   db_name             = module.database.db_name
   db_port             = module.database.port
   depends_on = [module.database]
@@ -505,9 +514,9 @@ resource "aws_ecs_task_definition" "api" {
     logConfiguration = {
       logDriver = "awslogs"
       options = {
-        awslogs-group         = aws_cloudwatch_log_group.api.name
-        awslogs-region        = data.aws_region.here.name
-        awslogs-stream-prefix = "api"
+      awslogs-group         = aws_cloudwatch_log_group.api.name
+      awslogs-region        = data.aws_region.here.name
+      awslogs-stream-prefix = "api"
       }
     }
     healthCheck = {
@@ -566,7 +575,7 @@ set -euo pipefail
 SRC_ID="${1:-ridgepost-db}"; TARGET_AZ="${2:-us-east-1b}"
 NEW_ID="${SRC_ID}-restored-${TARGET_AZ//-/}"; SUBNET_GROUP="${SRC_ID}"
 CLUSTER="${SRC_ID%-db}-api"; SERVICE="$CLUSTER"; REGION="${AWS_REGION:-us-east-1}"
-die() { echo "ERROR: $*" >&2; exit 1; }
+die(){ echo "ERROR: $*" >&2; exit 1; }
 SNAP=$(aws rds describe-db-snapshots --region "$REGION" --db-instance-identifier "$SRC_ID" --snapshot-type automated --query 'reverse(sort_by(DBSnapshots,&SnapshotCreateTime))[0].DBSnapshotIdentifier' --output text)
 [[ -n "$SNAP" && "$SNAP" != "None" ]] || die "no automated snapshot for ${SRC_ID}"
 aws rds restore-db-instance-from-db-snapshot --region "$REGION" --db-instance-identifier "$NEW_ID" --db-snapshot-identifier "$SNAP" --db-subnet-group-name "$SUBNET_GROUP" --availability-zone "$TARGET_AZ" --no-publicly-accessible --manage-master-user-password >/dev/null
@@ -575,7 +584,7 @@ HOST=$(aws rds describe-db-instances --region "$REGION" --db-instance-identifier
 SECRET=$(aws rds describe-db-instances --region "$REGION" --db-instance-identifier "$NEW_ID" --query 'DBInstances[0].MasterUserSecret.SecretArn' --output text)
 [[ -n "$HOST" && "$HOST" != "None" ]] || die "restored endpoint missing"
 [[ -n "$SECRET" && "$SECRET" != "None" ]] || die "managed MasterUserSecret ARN missing"
-echo "HOST=$HOST SECRET=$SECRET"
-echo "export TF_VAR_restored_db_host=$HOST TF_VAR_restored_secret_arn=$SECRET # then terraform apply compute"
+echo "export TF_VAR_restored_db_host=$HOST TF_VAR_restored_secret_arn=$SECRET"
+echo "cd envs/prod && terraform apply  # coalesce() rewires compute; then force ECS"
 aws ecs update-service --region "$REGION" --cluster "$CLUSTER" --service "$SERVICE" --force-new-deployment >/dev/null
 

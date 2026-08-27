@@ -14,6 +14,6 @@ Identifiers: Ridgepost, ridgepost-vpc 10.48.0.0/16, modules networking/compute/d
 
 **Q: RDS SG egress?** No egress block — Terraform removes default ALLOW ALL; RDS does not dial out.
 
-**Q: Restore path?** scripts/restore_az_failure.sh: fail if SNAP/HOST/SECRET empty; restore with --manage-master-user-password --no-publicly-accessible; export TF_VAR for host+secret; force ECS after task def update.
+**Q: Restore path / state drift?** scripts/restore_az_failure.sh validates SNAP/HOST/SECRET; restore with managed password; `TF_VAR_restored_db_host` + `TF_VAR_restored_secret_arn` → `coalesce()` in envs/prod → `terraform apply` rewires ECS in state; then force deployment.
 
 Exec role: logs + GetSecretValue + ECR. Task role: s3 on assets only. compute depends_on database. Health startPeriod 60.
