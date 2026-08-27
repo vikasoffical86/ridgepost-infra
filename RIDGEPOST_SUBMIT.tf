@@ -1,4 +1,4 @@
-# Ridgepost https://github.com/vikasoffical86/ridgepost-infra 68c7824
+# Ridgepost https://github.com/vikasoffical86/ridgepost-infra a5d9048
 # aws~>5.70 modules; 36 contract PASS; validate OK; USER 65532
 # FARGATE base=1 min_healthy=100; VPCE ecr.api/ecr.dkr/secretsmanager/logs
 # deletion_protection+prevent_destroy; manage_master_user_password; one NAT
