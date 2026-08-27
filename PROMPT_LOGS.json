@@ -1,0 +1,42 @@
+[
+  {
+    "tool": "Cursor",
+    "promptText": "terraform validate in envs/prod failed after I removed random_password — master_user_secret is unknown at plan. How should module.database output secret_arn so compute can GetSecretValue without putting password in state?",
+    "responseText": "Use manage_master_user_password = true on aws_db_instance. Output secret_arn = aws_db_instance.this.master_user_secret[0].secret_arn. Drop random_password and aws_secretsmanager_secret_version. Wire ECS secrets to username/password keys only; put DB_HOST/DB_NAME/DB_PORT in environment from instance attributes. module.compute depends_on = [module.database]."
+  },
+  {
+    "tool": "Cursor",
+    "promptText": "Contract test still passes but Quality review dinged RDS SG egress allow-all. In modules/networking, what is the correct Terraform pattern so RDS has no internet egress without breaking ECS→5432?",
+    "responseText": "Omit the egress block on aws_security_group.rds — Terraform removes the AWS default ALLOW ALL. Keep ingress 5432 from ecs SG only. On ecs SG, egress 5432 to var.private_subnets CIDRs, egress 443 to 0.0.0.0/0 for ECR/Secrets via the single NAT, and UDP 53 to var.cidr for VPC DNS. ALB egress 8080 to private subnet CIDRs."
+  },
+  {
+    "tool": "Cursor",
+    "promptText": "terraform fmt -check is clean. IAM role policies are named ridgepost-exec-least — Architecture/Quality said that hardcodes the app and breaks module reuse. Fix?",
+    "responseText": "Change aws_iam_role_policy.exec name to ${var.name}-exec-least and task to ${var.name}-task-least. Roles already use ${var.name}-exec / ${var.name}-task. Add matching versions.tf (~> 5.70) under networking, compute, and database so provider constraints are consistent with envs/prod."
+  },
+  {
+    "tool": "Cursor",
+    "promptText": "Health check startPeriod is 20 but the python image can take ~25s to listen on 8080. First deploy with desired_count=1 and deployment_minimum_healthy_percent=0 flaps. What should I set?",
+    "responseText": "Set startPeriod = 60 on the container healthCheck. Keep interval 30 retries 3. That keeps a 25s boot inside grace. depends_on module.database still required so the managed secret exists before the first task pulls DB_PASSWORD."
+  },
+  {
+    "tool": "Cursor",
+    "promptText": "COST.md says 25 min if us-east-1a dies, but graders say NAT shares that AZ and Secrets Manager must be re-plumbed. Write a scripted restore path I can put in scripts/?",
+    "responseText": "scripts/restore_az_failure.sh: describe latest automated snapshot → restore-db-instance-from-db-snapshot into us-east-1b with --manage-master-user-password --no-publicly-accessible → wait available → print new HOST and MasterUserSecret ARN → remind to update compute db_host/secret_arn → ecs update-service --force-new-deployment. RTO = restore 12–18 + secret/task 2 + healthz 3–5 + NAT rebuild buffer ≈ 25 min."
+  },
+  {
+    "tool": "Cursor",
+    "promptText": "python3 tests/contract.py failed on secret ridgepost/db after switching to manage_master_user_password. Update the contract assertions to match the new design.",
+    "responseText": "Replace secret ridgepost/db check with manage_master_user_password and assert no password = attribute. Add checks for restore script, startPeriod 60, ${var.name}-exec-least, versions.tf in all three modules, and depends_on = [module.database]."
+  },
+  {
+    "tool": "Cursor",
+    "promptText": "Finance cap is $150. If I add a second NAT for HA in networking, do I still fit with single-AZ db.t4g.micro? Show arithmetic and what to keep in HCL for this attempt.",
+    "responseText": "Two NATs ≈ $66 + ALB $18 + t4g.micro $12 + Spot ~$3 ≈ $106 — still under $150. Three NATs + Multi-AZ does not. For this attempt keep one NAT (documented AZ coupling) and multi_az=false; ship the restore script instead of a second NAT so the $73 baseline and req 5 trade-off stay honest."
+  },
+  {
+    "tool": "Cursor",
+    "promptText": "After terraform validate Success on bootstrap and envs/prod, what evidence should go in SUBMISSION_NOTES so Correctness does not treat the pack as an unverified stub?",
+    "responseText": "Link the public GitHub repo + commit SHA, evidence/terraform-validate.png with sha256, raw validate log, contract.py PASS count, state clearly that apply was not run (no fake apply IDs), and point at scripts/restore_az_failure.sh plus manage_master_user_password as the state/password mitigation."
+  }
+]

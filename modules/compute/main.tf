@@ -69,7 +69,7 @@ data "aws_iam_policy_document" "exec" {
 }
 
 resource "aws_iam_role_policy" "exec" {
-  name   = "ridgepost-exec-least"
+  name   = "${var.name}-exec-least"
   role   = aws_iam_role.exec.id
   policy = data.aws_iam_policy_document.exec.json
 }
@@ -93,7 +93,7 @@ data "aws_iam_policy_document" "task" {
 }
 
 resource "aws_iam_role_policy" "task" {
-  name   = "ridgepost-task-least"
+  name   = "${var.name}-task-least"
   role   = aws_iam_role.task.id
   policy = data.aws_iam_policy_document.task.json
 }
@@ -183,7 +183,7 @@ resource "aws_ecs_task_definition" "api" {
     cpu_architecture        = "X86_64"
   }
   container_definitions = jsonencode([{
-    name                   = "ridgepost-api"
+    name                   = "${var.name}-api"
     image                  = var.container_image
     user                   = "65532"
     essential              = true
@@ -192,15 +192,17 @@ resource "aws_ecs_task_definition" "api" {
     portMappings           = [{ containerPort = 8080, protocol = "tcp" }]
     readonlyRootFilesystem = true
     linuxParameters        = { initProcessEnabled = true, tmpfs = [{ containerPath = "/tmp", size = 64 }] }
+    # Password from RDS-managed SM secret — never from tfvars / random_password in state.
     secrets = [
-      { name = "DB_HOST", valueFrom = "${var.secret_arn}:host::" },
       { name = "DB_USER", valueFrom = "${var.secret_arn}:username::" },
-      { name = "DB_PASSWORD", valueFrom = "${var.secret_arn}:password::" },
-      { name = "DB_NAME", valueFrom = "${var.secret_arn}:dbname::" }
+      { name = "DB_PASSWORD", valueFrom = "${var.secret_arn}:password::" }
     ]
     environment = [
       { name = "ASSETS_BUCKET", value = aws_s3_bucket.assets.bucket },
-      { name = "PORT", value = "8080" }
+      { name = "PORT", value = "8080" },
+      { name = "DB_HOST", value = var.db_host },
+      { name = "DB_NAME", value = var.db_name },
+      { name = "DB_PORT", value = tostring(var.db_port) }
     ]
     logConfiguration = {
       logDriver = "awslogs"
@@ -215,7 +217,7 @@ resource "aws_ecs_task_definition" "api" {
       interval    = 30
       timeout     = 5
       retries     = 3
-      startPeriod = 20
+      startPeriod = 60
     }
   }])
 }
@@ -237,7 +239,7 @@ resource "aws_ecs_service" "api" {
   }
   load_balancer {
     target_group_arn = aws_lb_target_group.api.arn
-    container_name   = "ridgepost-api"
+    container_name   = "${var.name}-api"
     container_port   = 8080
   }
   deployment_minimum_healthy_percent = 0

@@ -1,8 +1,7 @@
 terraform {
   required_version = ">= 1.6"
   required_providers {
-    aws    = { source = "hashicorp/aws", version = "~> 5.70" }
-    random = { source = "hashicorp/random", version = "~> 3.6" }
+    aws = { source = "hashicorp/aws", version = "~> 5.70" }
   }
   backend "s3" {
     bucket         = "ridgepost-tfstate-REPLACE_ACCOUNT"
@@ -62,9 +61,15 @@ module "compute" {
   acm_certificate_arn = var.acm_certificate_arn
   secret_arn          = module.database.secret_arn
   container_image     = var.container_image
+  db_host             = module.database.endpoint
+  db_name             = module.database.db_name
+  db_port             = module.database.port
+  # Wait for RDS + managed secret before ECS can inject DB_USER/DB_PASSWORD.
+  depends_on = [module.database]
 }
 
 output "alb_dns" { value = module.compute.alb_dns }
 output "assets_bucket" { value = module.compute.assets_bucket }
 output "db_endpoint" { value = module.database.endpoint }
+output "db_secret_arn" { value = module.database.secret_arn }
 output "nat_az" { value = module.networking.nat_az }

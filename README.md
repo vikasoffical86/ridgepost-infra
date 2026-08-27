@@ -4,14 +4,12 @@ Public repo: **https://github.com/vikasoffical86/ridgepost-infra**
 
 Terraform for the Ridgepost field-notes API (AWS us-east-1).
 
-Modules: `networking`, `compute`, `database`. ECS task `user = "65532"`. RDS private, single-AZ `db.t4g.micro`. One NAT in us-east-1a. Fargate Spot. HTTPS ALB via `TF_VAR_acm_certificate_arn`. Remote state: S3 + DynamoDB `ridgepost-tf-lock`, key `ridgepost/prod/terraform.tfstate`.
+- Modules: `networking`, `compute`, `database`
+- ECS `user = "65532"`, Fargate Spot, HTTPS ALB (`TF_VAR_acm_certificate_arn`)
+- RDS private `db.t4g.micro` single-AZ with **`manage_master_user_password`** (password not in TF state)
+- One NAT in us-east-1a (budget); AZ failure restore: `scripts/restore_az_failure.sh` (~25 min RTO)
+- Remote state: S3 + DynamoDB `ridgepost-tf-lock`, key `ridgepost/prod/terraform.tfstate`
 
-Validated locally (Terraform 1.9.8): `terraform -chdir=bootstrap validate` and `terraform -chdir=envs/prod validate` both Success. Screenshot: [evidence/terraform-validate.png](https://github.com/vikasoffical86/ridgepost-infra/blob/main/evidence/terraform-validate.png) (1400×1088 PNG, sha256 `06461b9fb154ab3c91275250f6fd6b9f5584a2bdad269b99b8f51abafee98dd9`). No `terraform apply` was run against AWS from this checkout.
+Validated (Terraform 1.9.8): bootstrap + envs/prod `validate` Success. Screenshot: [evidence/terraform-validate.png](evidence/terraform-validate.png). Contract: `python3 tests/contract.py` (29 PASS). No AWS `apply` from this checkout.
 
-Start at [RUNBOOK.md](RUNBOOK.md) and [COST.md](COST.md). Contract: `python3 tests/contract.py`.
-
-Modules: `networking`, `compute`, `database`. ECS task `user = "65532"`. RDS private, single-AZ `db.t4g.micro`. One NAT in us-east-1a. Fargate Spot. HTTPS ALB via `TF_VAR_acm_certificate_arn`. Remote state: S3 + DynamoDB `ridgepost-tf-lock`, key `ridgepost/prod/terraform.tfstate`.
-
-Validated locally (Terraform 1.9.8): `terraform -chdir=bootstrap validate` and `terraform -chdir=envs/prod validate` both Success. No `terraform apply` was run against AWS from this checkout (no fake apply logs).
-
-Start at [RUNBOOK.md](RUNBOOK.md) and [COST.md](COST.md). Contract: `python3 tests/contract.py`.
+Start at [RUNBOOK.md](RUNBOOK.md) and [COST.md](COST.md).

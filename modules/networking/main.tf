@@ -27,9 +27,12 @@ resource "aws_subnet" "private" {
   tags              = { Name = "${var.name}-private-${var.azs[count.index]}" }
 }
 
+# Single NAT in azs[0] — budget trade-off. Both private RTs share it.
+# AZ failure of azs[0] kills egress for ALL private subnets + single-AZ RDS there.
 resource "aws_eip" "nat" {
-  domain = "vpc"
-  tags   = { Name = "${var.name}-nat-eip" }
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.this]
+  tags       = { Name = "${var.name}-nat-eip" }
 }
 
 resource "aws_nat_gateway" "this" {
@@ -79,8 +82,9 @@ resource "aws_vpc_endpoint" "s3" {
 }
 
 resource "aws_security_group" "alb" {
-  name   = "${var.name}-alb"
-  vpc_id = aws_vpc.this.id
+  name        = "${var.name}-alb"
+  description = "ALB HTTPS/HTTP; egress only to ECS :8080"
+  vpc_id      = aws_vpc.this.id
   ingress {
     from_port   = 443
     to_port     = 443
@@ -94,16 +98,18 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "Forward to tasks in private subnets"
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = var.private_subnets
   }
 }
 
 resource "aws_security_group" "ecs" {
-  name   = "${var.name}-ecs"
-  vpc_id = aws_vpc.this.id
+  name        = "${var.name}-ecs"
+  description = "ECS tasks; egress HTTPS via NAT + Postgres to private CIDRs"
+  vpc_id      = aws_vpc.this.id
   ingress {
     from_port       = 8080
     to_port         = 8080
@@ -111,26 +117,37 @@ resource "aws_security_group" "ecs" {
     security_groups = [aws_security_group.alb.id]
   }
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "ECR / Secrets Manager / HTTPS via single NAT"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    description = "VPC DNS"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = [var.cidr]
+  }
+  egress {
+    description = "Postgres to private subnets"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = var.private_subnets
   }
 }
 
+# No egress block: Terraform strips AWS default ALLOW ALL. RDS does not call out.
 resource "aws_security_group" "rds" {
-  name   = "${var.name}-rds"
-  vpc_id = aws_vpc.this.id
+  name        = "${var.name}-rds"
+  description = "Postgres ingress from ECS only; no internet egress"
+  vpc_id      = aws_vpc.this.id
   ingress {
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
     security_groups = [aws_security_group.ecs.id]
-  }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
   }
 }

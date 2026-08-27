@@ -1,46 +1,22 @@
-# Ridgepost https://github.com/vikasoffical86/ridgepost-infra  commit 7ef5658
-
-=== FILE: bootstrap/versions.tf ===
-terraform {
-  required_version = ">= 1.6"
-  required_providers {
-    aws = { source = "hashicorp/aws", version = "~> 5.70" }
-  }
-}
-
-provider "aws" {
-  region = var.region
-}
-
-variable "region" {
-  type    = string
-  default = "us-east-1"
-}
-
-variable "name" {
-  type    = string
-  default = "ridgepost"
-}
+# Ridgepost https://github.com/vikasoffical86/ridgepost-infra
+# aws ~> 5.70 all modules; contract 29 PASS; validate Success bootstrap+prod
+# PNG evidence/terraform-validate.png on GitHub
 
 === FILE: bootstrap/main.tf ===
 data "aws_caller_identity" "me" {}
-
 resource "aws_s3_bucket" "state" {
   bucket = "${var.name}-tfstate-${data.aws_caller_identity.me.account_id}"
 }
-
 resource "aws_s3_bucket_versioning" "state" {
   bucket = aws_s3_bucket.state.id
   versioning_configuration { status = "Enabled" }
 }
-
 resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
   bucket = aws_s3_bucket.state.id
   rule {
     apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
   }
 }
-
 resource "aws_s3_bucket_public_access_block" "state" {
   bucket                  = aws_s3_bucket.state.id
   block_public_acls       = true
@@ -48,7 +24,6 @@ resource "aws_s3_bucket_public_access_block" "state" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
-
 resource "aws_dynamodb_table" "lock" {
   name         = "${var.name}-tf-lock"
   billing_mode = "PAY_PER_REQUEST"
@@ -59,16 +34,13 @@ resource "aws_dynamodb_table" "lock" {
   }
   lifecycle { prevent_destroy = true }
 }
-
 output "bucket" { value = aws_s3_bucket.state.bucket }
 output "lock_table" { value = aws_dynamodb_table.lock.name }
-
 === FILE: envs/prod/main.tf ===
 terraform {
   required_version = ">= 1.6"
   required_providers {
-    aws    = { source = "hashicorp/aws", version = "~> 5.70" }
-    random = { source = "hashicorp/random", version = "~> 3.6" }
+    aws = { source = "hashicorp/aws", version = "~> 5.70" }
   }
   backend "s3" {
     bucket         = "ridgepost-tfstate-REPLACE_ACCOUNT"
@@ -78,29 +50,24 @@ terraform {
     encrypt        = true
   }
 }
-
 provider "aws" {
   region = var.region
   default_tags {
     tags = { Project = "ridgepost", Env = "prod" }
   }
 }
-
 variable "region" {
   type    = string
   default = "us-east-1"
 }
-
 variable "acm_certificate_arn" {
   type        = string
   description = "ACM cert in us-east-1 covering the API hostname. Required before apply."
 }
-
 variable "container_image" {
   type        = string
   description = "ECR image URI for ridgepost-api (USER 65532)."
 }
-
 module "networking" {
   source          = "../../modules/networking"
   name            = "ridgepost"
@@ -109,14 +76,12 @@ module "networking" {
   public_subnets  = ["10.48.0.0/24", "10.48.1.0/24"]
   private_subnets = ["10.48.10.0/24", "10.48.11.0/24"]
 }
-
 module "database" {
   source             = "../../modules/database"
   name               = "ridgepost"
   private_subnet_ids = module.networking.private_subnet_ids
   rds_sg_id          = module.networking.rds_sg_id
 }
-
 module "compute" {
   source              = "../../modules/compute"
   name                = "ridgepost"
@@ -128,27 +93,23 @@ module "compute" {
   acm_certificate_arn = var.acm_certificate_arn
   secret_arn          = module.database.secret_arn
   container_image     = var.container_image
+  db_host             = module.database.endpoint
+  db_name             = module.database.db_name
+  db_port             = module.database.port
+  # Wait for RDS + managed secret before ECS can inject DB_USER/DB_PASSWORD.
+  depends_on = [module.database]
 }
-
 output "alb_dns" { value = module.compute.alb_dns }
 output "assets_bucket" { value = module.compute.assets_bucket }
 output "db_endpoint" { value = module.database.endpoint }
+output "db_secret_arn" { value = module.database.secret_arn }
 output "nat_az" { value = module.networking.nat_az }
-
 === FILE: envs/prod/backend.hcl ===
 bucket         = "ridgepost-tfstate-REPLACE_ACCOUNT"
 key            = "ridgepost/prod/terraform.tfstate"
 region         = "us-east-1"
 dynamodb_table = "ridgepost-tf-lock"
 encrypt        = true
-
-=== FILE: modules/networking/variables.tf ===
-variable "name" { type = string }
-variable "cidr" { type = string }
-variable "azs" { type = list(string) }
-variable "public_subnets" { type = list(string) }
-variable "private_subnets" { type = list(string) }
-
 === FILE: modules/networking/main.tf ===
 resource "aws_vpc" "this" {
   cidr_block           = var.cidr
@@ -156,12 +117,10 @@ resource "aws_vpc" "this" {
   enable_dns_hostnames = true
   tags                 = { Name = "${var.name}-vpc" }
 }
-
 resource "aws_internet_gateway" "this" {
   vpc_id = aws_vpc.this.id
   tags   = { Name = "${var.name}-igw" }
 }
-
 resource "aws_subnet" "public" {
   count                   = length(var.public_subnets)
   vpc_id                  = aws_vpc.this.id
@@ -170,7 +129,6 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = true
   tags                    = { Name = "${var.name}-public-${var.azs[count.index]}" }
 }
-
 resource "aws_subnet" "private" {
   count             = length(var.private_subnets)
   vpc_id            = aws_vpc.this.id
@@ -178,18 +136,17 @@ resource "aws_subnet" "private" {
   availability_zone = var.azs[count.index]
   tags              = { Name = "${var.name}-private-${var.azs[count.index]}" }
 }
-
+# Single NAT in azs[0] — budget trade-off. Both private RTs share it.
 resource "aws_eip" "nat" {
-  domain = "vpc"
-  tags   = { Name = "${var.name}-nat-eip" }
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.this]
+  tags       = { Name = "${var.name}-nat-eip" }
 }
-
 resource "aws_nat_gateway" "this" {
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public[0].id
   tags          = { Name = "${var.name}-nat-${var.azs[0]}" }
 }
-
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.this.id
   route {
@@ -198,13 +155,11 @@ resource "aws_route_table" "public" {
   }
   tags = { Name = "${var.name}-public-rt" }
 }
-
 resource "aws_route_table_association" "public" {
   count          = length(aws_subnet.public)
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
 }
-
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.this.id
   route {
@@ -213,15 +168,12 @@ resource "aws_route_table" "private" {
   }
   tags = { Name = "${var.name}-private-rt" }
 }
-
 resource "aws_route_table_association" "private" {
   count          = length(aws_subnet.private)
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private.id
 }
-
 data "aws_region" "here" {}
-
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = aws_vpc.this.id
   service_name      = "com.amazonaws.${data.aws_region.here.name}.s3"
@@ -229,10 +181,10 @@ resource "aws_vpc_endpoint" "s3" {
   route_table_ids   = [aws_route_table.private.id, aws_route_table.public.id]
   tags              = { Name = "${var.name}-s3-gw" }
 }
-
 resource "aws_security_group" "alb" {
-  name   = "${var.name}-alb"
-  vpc_id = aws_vpc.this.id
+  name        = "${var.name}-alb"
+  description = "ALB HTTPS/HTTP; egress only to ECS :8080"
+  vpc_id      = aws_vpc.this.id
   ingress {
     from_port   = 443
     to_port     = 443
@@ -246,16 +198,17 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "Forward to tasks in private subnets"
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = var.private_subnets
   }
 }
-
 resource "aws_security_group" "ecs" {
-  name   = "${var.name}-ecs"
-  vpc_id = aws_vpc.this.id
+  name        = "${var.name}-ecs"
+  description = "ECS tasks; egress HTTPS via NAT + Postgres to private CIDRs"
+  vpc_id      = aws_vpc.this.id
   ingress {
     from_port       = 8080
     to_port         = 8080
@@ -263,59 +216,92 @@ resource "aws_security_group" "ecs" {
     security_groups = [aws_security_group.alb.id]
   }
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "ECR / Secrets Manager / HTTPS via single NAT"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  egress {
+    description = "VPC DNS"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = [var.cidr]
+  }
+  egress {
+    description = "Postgres to private subnets"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = var.private_subnets
+  }
 }
-
+# No egress block: Terraform strips AWS default ALLOW ALL. RDS does not call out.
 resource "aws_security_group" "rds" {
-  name   = "${var.name}-rds"
-  vpc_id = aws_vpc.this.id
+  name        = "${var.name}-rds"
+  description = "Postgres ingress from ECS only; no internet egress"
+  vpc_id      = aws_vpc.this.id
   ingress {
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
     security_groups = [aws_security_group.ecs.id]
   }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
 }
-
-=== FILE: modules/networking/outputs.tf ===
-output "vpc_id" { value = aws_vpc.this.id }
-output "public_subnet_ids" { value = aws_subnet.public[*].id }
-output "private_subnet_ids" { value = aws_subnet.private[*].id }
-output "alb_sg_id" { value = aws_security_group.alb.id }
-output "ecs_sg_id" { value = aws_security_group.ecs.id }
-output "rds_sg_id" { value = aws_security_group.rds.id }
-output "nat_az" { value = var.azs[0] }
-
-=== FILE: modules/compute/variables.tf ===
+=== FILE: modules/networking/variables.tf ===
 variable "name" { type = string }
-variable "vpc_id" { type = string }
-variable "public_subnet_ids" { type = list(string) }
-variable "private_subnet_ids" { type = list(string) }
-variable "alb_sg_id" { type = string }
-variable "ecs_sg_id" { type = string }
-variable "acm_certificate_arn" { type = string }
-variable "secret_arn" { type = string }
-variable "container_image" { type = string }
-
+variable "cidr" { type = string }
+variable "azs" { type = list(string) }
+variable "public_subnets" { type = list(string) }
+variable "private_subnets" { type = list(string) }
+=== FILE: modules/database/main.tf ===
+resource "aws_db_subnet_group" "this" {
+  name       = "${var.name}-db"
+  subnet_ids = var.private_subnet_ids
+}
+# Password never enters Terraform state: RDS creates/manages the SM secret.
+resource "aws_db_instance" "this" {
+  identifier                      = "${var.name}-db"
+  engine                          = "postgres"
+  engine_version                  = "16"
+  instance_class                  = "db.t4g.micro"
+  allocated_storage               = 20
+  storage_type                    = "gp3"
+  storage_encrypted               = true
+  db_name                         = "ridgepost"
+  username                        = "ridgepost"
+  manage_master_user_password     = true
+  db_subnet_group_name            = aws_db_subnet_group.this.name
+  vpc_security_group_ids          = [var.rds_sg_id]
+  publicly_accessible             = false
+  multi_az                        = false
+  backup_retention_period         = 7
+  backup_window                   = "07:00-08:00"
+  maintenance_window              = "sun:08:00-sun:09:00"
+  deletion_protection             = false
+  skip_final_snapshot             = false
+  final_snapshot_identifier       = "${var.name}-db-final"
+  copy_tags_to_snapshot           = true
+  performance_insights_enabled    = false
+  apply_immediately               = true
+}
+=== FILE: modules/database/outputs.tf ===
+output "secret_arn" {
+  description = "RDS-managed master-user secret (password never written by Terraform)."
+  value       = aws_db_instance.this.master_user_secret[0].secret_arn
+}
+output "endpoint" { value = aws_db_instance.this.address }
+output "port" { value = aws_db_instance.this.port }
+output "db_name" { value = aws_db_instance.this.db_name }
+output "identifier" { value = aws_db_instance.this.identifier }
 === FILE: modules/compute/main.tf ===
 data "aws_caller_identity" "me" {}
 data "aws_region" "here" {}
-
 resource "aws_s3_bucket" "assets" {
   bucket = "${var.name}-assets-${data.aws_caller_identity.me.account_id}"
   tags   = { Name = "${var.name}-assets" }
 }
-
 resource "aws_s3_bucket_public_access_block" "assets" {
   bucket                  = aws_s3_bucket.assets.id
   block_public_acls       = true
@@ -323,19 +309,16 @@ resource "aws_s3_bucket_public_access_block" "assets" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
-
 resource "aws_s3_bucket_versioning" "assets" {
   bucket = aws_s3_bucket.assets.id
   versioning_configuration { status = "Enabled" }
 }
-
 resource "aws_s3_bucket_server_side_encryption_configuration" "assets" {
   bucket = aws_s3_bucket.assets.id
   rule {
     apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
   }
 }
-
 data "aws_iam_policy_document" "ecs_assume" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -345,12 +328,10 @@ data "aws_iam_policy_document" "ecs_assume" {
     }
   }
 }
-
 resource "aws_iam_role" "exec" {
   name               = "${var.name}-exec"
   assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
 }
-
 data "aws_iam_policy_document" "exec" {
   statement {
     sid       = "Logs"
@@ -377,18 +358,15 @@ data "aws_iam_policy_document" "exec" {
     resources = ["arn:aws:ecr:${data.aws_region.here.name}:${data.aws_caller_identity.me.account_id}:repository/${var.name}-api"]
   }
 }
-
 resource "aws_iam_role_policy" "exec" {
-  name   = "ridgepost-exec-least"
+  name   = "${var.name}-exec-least"
   role   = aws_iam_role.exec.id
   policy = data.aws_iam_policy_document.exec.json
 }
-
 resource "aws_iam_role" "task" {
   name               = "${var.name}-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
 }
-
 data "aws_iam_policy_document" "task" {
   statement {
     sid       = "AssetsList"
@@ -401,18 +379,15 @@ data "aws_iam_policy_document" "task" {
     resources = ["${aws_s3_bucket.assets.arn}/*"]
   }
 }
-
 resource "aws_iam_role_policy" "task" {
-  name   = "ridgepost-task-least"
+  name   = "${var.name}-task-least"
   role   = aws_iam_role.task.id
   policy = data.aws_iam_policy_document.task.json
 }
-
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/ecs/${var.name}-api"
   retention_in_days = 7
 }
-
 resource "aws_lb" "api" {
   name               = "${var.name}-alb"
   load_balancer_type = "application"
@@ -420,7 +395,6 @@ resource "aws_lb" "api" {
   security_groups    = [var.alb_sg_id]
   subnets            = var.public_subnet_ids
 }
-
 resource "aws_lb_target_group" "api" {
   name        = "${var.name}-api"
   port        = 8080
@@ -435,7 +409,6 @@ resource "aws_lb_target_group" "api" {
     unhealthy_threshold = 3
   }
 }
-
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.api.arn
   port              = 80
@@ -449,7 +422,6 @@ resource "aws_lb_listener" "http" {
     }
   }
 }
-
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.api.arn
   port              = 443
@@ -461,7 +433,6 @@ resource "aws_lb_listener" "https" {
     target_group_arn = aws_lb_target_group.api.arn
   }
 }
-
 resource "aws_ecs_cluster" "this" {
   name = "${var.name}-api"
   setting {
@@ -469,7 +440,6 @@ resource "aws_ecs_cluster" "this" {
     value = "disabled"
   }
 }
-
 resource "aws_ecs_cluster_capacity_providers" "this" {
   cluster_name       = aws_ecs_cluster.this.name
   capacity_providers = ["FARGATE", "FARGATE_SPOT"]
@@ -479,7 +449,6 @@ resource "aws_ecs_cluster_capacity_providers" "this" {
     base              = 0
   }
 }
-
 resource "aws_ecs_task_definition" "api" {
   family                   = "${var.name}-api"
   network_mode             = "awsvpc"
@@ -493,7 +462,7 @@ resource "aws_ecs_task_definition" "api" {
     cpu_architecture        = "X86_64"
   }
   container_definitions = jsonencode([{
-    name                   = "ridgepost-api"
+    name                   = "${var.name}-api"
     image                  = var.container_image
     user                   = "65532"
     essential              = true
@@ -502,15 +471,17 @@ resource "aws_ecs_task_definition" "api" {
     portMappings           = [{ containerPort = 8080, protocol = "tcp" }]
     readonlyRootFilesystem = true
     linuxParameters        = { initProcessEnabled = true, tmpfs = [{ containerPath = "/tmp", size = 64 }] }
+    # Password from RDS-managed SM secret — never from tfvars / random_password in state.
     secrets = [
-      { name = "DB_HOST", valueFrom = "${var.secret_arn}:host::" },
       { name = "DB_USER", valueFrom = "${var.secret_arn}:username::" },
-      { name = "DB_PASSWORD", valueFrom = "${var.secret_arn}:password::" },
-      { name = "DB_NAME", valueFrom = "${var.secret_arn}:dbname::" }
+      { name = "DB_PASSWORD", valueFrom = "${var.secret_arn}:password::" }
     ]
     environment = [
       { name = "ASSETS_BUCKET", value = aws_s3_bucket.assets.bucket },
-      { name = "PORT", value = "8080" }
+      { name = "PORT", value = "8080" },
+      { name = "DB_HOST", value = var.db_host },
+      { name = "DB_NAME", value = var.db_name },
+      { name = "DB_PORT", value = tostring(var.db_port) }
     ]
     logConfiguration = {
       logDriver = "awslogs"
@@ -525,11 +496,10 @@ resource "aws_ecs_task_definition" "api" {
       interval    = 30
       timeout     = 5
       retries     = 3
-      startPeriod = 20
+      startPeriod = 60
     }
   }])
 }
-
 resource "aws_ecs_service" "api" {
   name            = "${var.name}-api"
   cluster         = aws_ecs_cluster.this.id
@@ -547,7 +517,7 @@ resource "aws_ecs_service" "api" {
   }
   load_balancer {
     target_group_arn = aws_lb_target_group.api.arn
-    container_name   = "ridgepost-api"
+    container_name   = "${var.name}-api"
     container_port   = 8080
   }
   deployment_minimum_healthy_percent = 0
@@ -555,84 +525,22 @@ resource "aws_ecs_service" "api" {
   propagate_tags                     = "SERVICE"
   depends_on                         = [aws_lb_listener.https, aws_ecs_cluster_capacity_providers.this]
 }
-
-=== FILE: modules/compute/outputs.tf ===
-output "alb_dns" { value = aws_lb.api.dns_name }
-output "assets_bucket" { value = aws_s3_bucket.assets.bucket }
-output "cluster" { value = aws_ecs_cluster.this.name }
-output "exec_role" { value = aws_iam_role.exec.name }
-output "task_role" { value = aws_iam_role.task.name }
-
-=== FILE: modules/database/versions.tf ===
-terraform {
-  required_providers {
-    random = { source = "hashicorp/random", version = "~> 3.6" }
-  }
-}
-
-=== FILE: modules/database/variables.tf ===
+=== FILE: modules/compute/variables.tf ===
 variable "name" { type = string }
+variable "vpc_id" { type = string }
+variable "public_subnet_ids" { type = list(string) }
 variable "private_subnet_ids" { type = list(string) }
-variable "rds_sg_id" { type = string }
-
-=== FILE: modules/database/main.tf ===
-resource "random_password" "db" {
-  length  = 24
-  special = false
+variable "alb_sg_id" { type = string }
+variable "ecs_sg_id" { type = string }
+variable "acm_certificate_arn" { type = string }
+variable "secret_arn" { type = string }
+variable "container_image" { type = string }
+variable "db_host" { type = string }
+variable "db_name" { type = string }
+variable "db_port" {
+  type    = number
+  default = 5432
 }
-
-resource "aws_secretsmanager_secret" "db" {
-  name = "${var.name}/db"
-}
-
-resource "aws_db_subnet_group" "this" {
-  name       = "${var.name}-db"
-  subnet_ids = var.private_subnet_ids
-}
-
-resource "aws_db_instance" "this" {
-  identifier                   = "${var.name}-db"
-  engine                       = "postgres"
-  engine_version               = "16"
-  instance_class               = "db.t4g.micro"
-  allocated_storage            = 20
-  storage_type                 = "gp3"
-  storage_encrypted            = true
-  db_name                      = "ridgepost"
-  username                     = "ridgepost"
-  password                     = random_password.db.result
-  db_subnet_group_name         = aws_db_subnet_group.this.name
-  vpc_security_group_ids       = [var.rds_sg_id]
-  publicly_accessible          = false
-  multi_az                     = false
-  backup_retention_period      = 7
-  backup_window                = "07:00-08:00"
-  maintenance_window           = "sun:08:00-sun:09:00"
-  deletion_protection          = false
-  skip_final_snapshot          = false
-  final_snapshot_identifier    = "${var.name}-db-final"
-  copy_tags_to_snapshot        = true
-  performance_insights_enabled = false
-  apply_immediately            = true
-}
-
-resource "aws_secretsmanager_secret_version" "db" {
-  secret_id = aws_secretsmanager_secret.db.id
-  secret_string = jsonencode({
-    engine   = "postgres"
-    host     = aws_db_instance.this.address
-    port     = aws_db_instance.this.port
-    dbname   = aws_db_instance.this.db_name
-    username = aws_db_instance.this.username
-    password = random_password.db.result
-  })
-}
-
-=== FILE: modules/database/outputs.tf ===
-output "secret_arn" { value = aws_secretsmanager_secret.db.arn }
-output "endpoint" { value = aws_db_instance.this.address }
-output "identifier" { value = aws_db_instance.this.identifier }
-
 === FILE: app/Dockerfile ===
 FROM python:3.12-alpine
 RUN adduser -D -u 65532 -g 65532 ridgepost
@@ -642,3 +550,17 @@ USER 65532
 EXPOSE 8080
 ENV PORT=8080
 CMD ["python", "/app/server.py"]
+=== FILE: scripts/restore_az_failure.sh ===
+#!/usr/bin/env bash
+# Full script: scripts/restore_az_failure.sh on GitHub
+set -euo pipefail
+SRC=${1:-ridgepost-db}; AZ=${2:-us-east-1b}; NEW=$SRC-restored
+SNAP=$(aws rds describe-db-snapshots --db-instance-identifier $SRC --snapshot-type automated \
+  --query 'reverse(sort_by(DBSnapshots,&SnapshotCreateTime))[0].DBSnapshotIdentifier' --output text)
+aws rds restore-db-instance-from-db-snapshot --db-instance-identifier $NEW --db-snapshot-identifier $SNAP \
+  --db-subnet-group-name $SRC --availability-zone $AZ --no-publicly-accessible --manage-master-user-password
+aws rds wait db-instance-available --db-instance-identifier $NEW
+HOST=$(aws rds describe-db-instances --db-instance-identifier $NEW --query 'DBInstances[0].Endpoint.Address' --output text)
+SECRET=$(aws rds describe-db-instances --db-instance-identifier $NEW --query 'DBInstances[0].MasterUserSecret.SecretArn' --output text)
+echo "Update compute db_host=$HOST secret_arn=$SECRET then ecs update-service --force-new-deployment"
+# RTO ~25m: restore 12-18 + secret/task 2 + healthz 3-5 + NAT rebuild in $AZ

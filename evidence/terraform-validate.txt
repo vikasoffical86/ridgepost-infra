@@ -1,14 +1,8 @@
-$ terraform -chdir=bootstrap validate
-Success! The configuration is valid.
-
-exit=0
-
-$ terraform -chdir=envs/prod validate
-Success! The configuration is valid.
-
-exit=0
-
-$ python3 tests/contract.py
+[32m[1mSuccess![0m The configuration is valid.
+[0m
+---
+[32m[1mSuccess![0m The configuration is valid.
+[0m
 ridgepost contract
 PASS module networking
 PASS module compute
@@ -25,14 +19,18 @@ PASS Dockerfile USER 65532
 PASS HTTPS listener
 PASS acm_certificate_arn
 PASS no AKIA
-PASS no hardcoded password
-PASS secret ridgepost/db
+PASS manage_master_user_password
+PASS no password attr
 PASS backend dynamodb
 PASS backend key
 PASS one NAT
 PASS private ECS ip
 PASS exec vs task roles
-all 22 checks passed
-
-$ terraform fmt -check -recursive
-(no diff — formatted)
+PASS IAM policy uses var.name
+PASS provider version networking
+PASS provider version compute
+PASS provider version database
+PASS restore script
+PASS startPeriod 60
+PASS compute depends_on database
+all 29 checks passed
