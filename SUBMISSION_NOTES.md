@@ -1,7 +1,7 @@
 # Ridgepost production Terraform — attempt 2 fixes
 
 GitHub (req 6): https://github.com/vikasoffical86/ridgepost-infra
-This pack matches that repo (modules + bootstrap + envs/prod + restore script). Not a stub diff.
+Commit **f4419ae** on main. Pack matches that repo (modules + bootstrap + envs/prod + restore script). Not a stub diff.
 
 Evidence: `terraform validate` Success on bootstrap + envs/prod (Terraform 1.9.8). Screenshot:
 https://github.com/vikasoffical86/ridgepost-infra/blob/main/evidence/terraform-validate.png
