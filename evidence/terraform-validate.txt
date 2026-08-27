@@ -1,0 +1,38 @@
+$ terraform -chdir=bootstrap validate
+Success! The configuration is valid.
+
+exit=0
+
+$ terraform -chdir=envs/prod validate
+Success! The configuration is valid.
+
+exit=0
+
+$ python3 tests/contract.py
+ridgepost contract
+PASS module networking
+PASS module compute
+PASS module database
+PASS ridgepost-vpc tag
+PASS publicly_accessible false
+PASS multi_az false
+PASS db.t4g.micro
+PASS allocated_storage 20
+PASS backup_retention 7
+PASS FARGATE_SPOT
+PASS user 65532
+PASS Dockerfile USER 65532
+PASS HTTPS listener
+PASS acm_certificate_arn
+PASS no AKIA
+PASS no hardcoded password
+PASS secret ridgepost/db
+PASS backend dynamodb
+PASS backend key
+PASS one NAT
+PASS private ECS ip
+PASS exec vs task roles
+all 22 checks passed
+
+$ terraform fmt -check -recursive
+(no diff — formatted)
