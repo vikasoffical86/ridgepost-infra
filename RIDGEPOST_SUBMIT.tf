@@ -1,4 +1,4 @@
-# github.com/vikasoffical86/ridgepost-infra 9e9e075
+# github.com/vikasoffical86/ridgepost-infra 062fc06
 === FILE: bootstrap/main.tf ===
 data "aws_caller_identity" "me" {}
 module "state" {
