@@ -1,10 +1,11 @@
 # Ridgepost production Terraform — attempt 3
 
 GitHub (req 6): https://github.com/vikasoffical86/ridgepost-infra  
-Commit: **REPLACE_SHA** on main. Pack matches repo (modules + bootstrap + envs/prod + restore script).
+Commit: **a952e23** on main. Pack matches repo (modules + bootstrap + envs/prod + restore script).
 
 Evidence: `terraform validate` Success on bootstrap + envs/prod (Terraform 1.9.8).  
-`python3 tests/contract.py` — 33 PASS. `terraform fmt -recursive` clean.  
+`python3 tests/contract.py` — **45 PASS** (includes `var.vpc_id` in compute TG, ALB egress :8080, restore /healthz smoke test).  
+`terraform fmt -recursive` clean on modules/bootstrap/envs.  
 Screenshot: evidence/terraform-validate.png  
 No `terraform apply` against AWS from this checkout (REPLACE_ACCOUNT placeholder in backend).
 
@@ -68,7 +69,7 @@ chmod +x scripts/restore_az_failure.sh
 ./scripts/restore_az_failure.sh ridgepost-db us-east-1b
 ```
 
-Script: validates SNAP/HOST/SECRET → restore in 1b with managed password → export `TF_VAR_restored_db_host` + `TF_VAR_restored_secret_arn` → `terraform apply` (validation requires BOTH vars) → force ECS deployment.
+Script: validates SNAP/HOST/SECRET → restore in 1b with managed password → export `TF_VAR_restored_db_host` + `TF_VAR_restored_secret_arn` → `terraform apply` (validation requires BOTH vars) → force ECS deployment → **wait services-stable** → curl `https://$ALB_DNS/healthz` (12×10s).
 
 **DR/state contract:** Original `aws_db_instance.this` stays in state (`prevent_destroy`). Restored instance is wired via `coalesce(var.restored_*, module.database.*)` into ECS only. Retire old RDS manually after cutover.
 

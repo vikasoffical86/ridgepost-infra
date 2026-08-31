@@ -61,7 +61,25 @@ terraform apply -auto-approve
 # coalesce() in envs/prod wires module.compute db_host + secret_arn from restored vars.
 # Original aws_db_instance.this remains in state (prevent_destroy); retire manually after cutover.
 
-echo "==> 5/5 Force ECS roll after apply registers new task def"
+echo "==> 5/6 Force ECS roll after apply registers new task def"
 aws ecs update-service --region "$REGION" --cluster "$CLUSTER" --service "$SERVICE" \
   --force-new-deployment >/dev/null
-echo "Done. RTO budget ~25-35 min = restore 12-18 + apply 2-5 + healthz 3-5 + buffer."
+aws ecs wait services-stable --region "$REGION" --cluster "$CLUSTER" --services "$SERVICE"
+
+echo "==> 6/6 Verify ALB /healthz (post-restore smoke test)"
+ALB_DNS=$(terraform output -raw alb_dns 2>/dev/null || true)
+if [[ -z "$ALB_DNS" || "$ALB_DNS" == "null" ]]; then
+  ALB_DNS=$(aws elbv2 describe-load-balancers --region "$REGION" \
+    --names "${SRC_ID%-db}-alb" --query 'LoadBalancers[0].DNSName' --output text 2>/dev/null || true)
+fi
+[[ -n "$ALB_DNS" && "$ALB_DNS" != "None" ]] || die "could not resolve ALB DNS for health check"
+for i in $(seq 1 12); do
+  if curl -sf "https://${ALB_DNS}/healthz" >/dev/null; then
+    echo "    OK https://${ALB_DNS}/healthz"
+    echo "Done. RTO budget ~25-35 min = restore 12-18 + apply 2-5 + healthz 3-5 + buffer."
+    exit 0
+  fi
+  echo "    waiting for /healthz (${i}/12)..."
+  sleep 10
+done
+die "ALB /healthz did not return 200 after restore"

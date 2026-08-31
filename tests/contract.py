@@ -59,6 +59,12 @@ checks = {
     "dr validation both or neither": "restored_db_host and restored_secret_arn" in hcl
     or "restored_db_host == null && var.restored_secret_arn == null" in hcl,
     "apply_immediately false": re.search(r"apply_immediately\s*=\s*false", hcl) is not None,
+    "tg uses var.vpc_id": "vpc_id      = var.vpc_id" in (ROOT / "modules/compute/main.tf").read_text(),
+    "compute no aws_vpc.this": "aws_vpc.this" not in (ROOT / "modules/compute/main.tf").read_text(),
+    "alb egress 8080": (ROOT / "modules/networking/main.tf").read_text().find("Forward to tasks") >= 0
+    and re.search(r"from_port\s*=\s*8080", (ROOT / "modules/networking/main.tf").read_text()) is not None,
+    "restore waits ecs stable": "services-stable" in restore,
+    "restore healthz curl": "/healthz" in restore and "curl -sf" in restore,
 }
 
 failed = [k for k, ok in checks.items() if not ok]

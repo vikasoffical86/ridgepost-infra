@@ -48,5 +48,10 @@
     "tool": "Cursor",
     "promptText": "apply_immediately=true conflicts with prevent_destroy lifecycle story on ridgepost-db — fix?",
     "responseText": "Set apply_immediately=false for prod-consistent maintenance window. Param changes apply during sun maintenance_window. Keeps deletion_protection + prevent_destroy coherent. contract.py apply_immediately false check PASS."
+  },
+  {
+    "tool": "Cursor",
+    "promptText": "Grader reported aws_vpc.this in compute target group and ALB SG egress on 443 not 8080 — verify HCL and contract tests before resubmit.",
+    "responseText": "Confirmed modules/compute/main.tf uses vpc_id = var.vpc_id (passed from module.networking.vpc_id); no aws_vpc.this in compute module. networking alb SG egress from_port=8080 to private subnet CIDRs; ECS ingress 8080 from alb SG. Added contract checks tg uses var.vpc_id, alb egress 8080, restore waits services-stable + curl /healthz. terraform validate Success; 45/45 contract PASS."
   }
 ]

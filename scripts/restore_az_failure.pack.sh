@@ -15,3 +15,7 @@ SECRET=$(aws rds describe-db-instances --region "$REGION" --db-instance-identifi
 export TF_VAR_restored_db_host="$HOST" TF_VAR_restored_secret_arn="$SECRET"
 cd envs/prod && terraform apply -auto-approve
 aws ecs update-service --region "$REGION" --cluster ridgepost-api --service ridgepost-api --force-new-deployment
+aws ecs wait services-stable --region "$REGION" --cluster ridgepost-api --services ridgepost-api
+ALB=$(terraform output -raw alb_dns)
+for i in $(seq 1 12); do curl -sf "https://${ALB}/healthz" && exit 0; sleep 10; done
+die "ALB /healthz failed post-restore"

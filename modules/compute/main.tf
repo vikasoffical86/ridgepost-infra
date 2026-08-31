@@ -111,6 +111,7 @@ resource "aws_lb" "api" {
   subnets            = var.public_subnet_ids
 }
 
+# Target group vpc_id comes from networking module output (var.vpc_id).
 resource "aws_lb_target_group" "api" {
   name        = "${var.name}-api"
   port        = 8080

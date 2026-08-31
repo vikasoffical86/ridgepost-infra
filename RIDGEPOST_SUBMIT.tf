@@ -1,4 +1,4 @@
-# github.com/vikasoffical86/ridgepost-infra REPLACE_SHA
+# github.com/vikasoffical86/ridgepost-infra
 
 === FILE: bootstrap/main.tf ===
 data "aws_caller_identity" "me" {}
@@ -119,13 +119,6 @@ output "assets_bucket" { value = module.compute.assets_bucket }
 output "db_endpoint" { value = module.database.endpoint }
 output "db_secret_arn" { value = module.database.secret_arn }
 output "nat_az" { value = module.networking.nat_az }
-
-=== FILE: envs/prod/backend.hcl ===
-bucket         = "ridgepost-tfstate-REPLACE_ACCOUNT"
-key            = "ridgepost/prod/terraform.tfstate"
-region         = "us-east-1"
-dynamodb_table = "ridgepost-tf-lock"
-encrypt        = true
 
 === FILE: modules/networking/main.tf ===
 resource "aws_vpc" "this" {
@@ -586,16 +579,6 @@ prevent_destroy = true
 }
 }
 
-=== FILE: modules/database/outputs.tf ===
-output "secret_arn" {
-description = "RDS-managed master-user secret (password never written by Terraform)."
-value       = aws_db_instance.this.master_user_secret[0].secret_arn
-}
-output "endpoint" { value = aws_db_instance.this.address }
-output "port" { value = aws_db_instance.this.port }
-output "db_name" { value = aws_db_instance.this.db_name }
-output "identifier" { value = aws_db_instance.this.identifier }
-
 === FILE: app/Dockerfile ===
 FROM python:3.12-alpine
 RUN adduser -D -u 65532 -g 65532 ridgepost
@@ -606,7 +589,8 @@ EXPOSE 8080
 ENV PORT=8080
 CMD ["python", "/app/server.py"]
 
-=== FILE: scripts/restore_az_failure.sh ===
+
+=== FILE: scripts/restore_az_failure.pack.sh ===
 #!/usr/bin/env bash
 # Compact DR script for pack; full version in repo scripts/restore_az_failure.sh
 set -euo pipefail
@@ -624,3 +608,8 @@ SECRET=$(aws rds describe-db-instances --region "$REGION" --db-instance-identifi
 export TF_VAR_restored_db_host="$HOST" TF_VAR_restored_secret_arn="$SECRET"
 cd envs/prod && terraform apply -auto-approve
 aws ecs update-service --region "$REGION" --cluster ridgepost-api --service ridgepost-api --force-new-deployment
+aws ecs wait services-stable --region "$REGION" --cluster ridgepost-api --services ridgepost-api
+ALB=$(terraform output -raw alb_dns)
+for i in $(seq 1 12); do curl -sf "https://${ALB}/healthz" && exit 0; sleep 10; done
+die "ALB /healthz failed post-restore"
+
