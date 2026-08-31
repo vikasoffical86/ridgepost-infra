@@ -1,9 +1,30 @@
-ridgepost contract: 36 PASS
-terraform validate (envs/prod): Success
-Key HCL (attempt 3):
-- FARGATE base=1 + FARGATE_SPOT weight 4
-- deployment_minimum_healthy_percent = 100
-- Interface VPCE: ecr.api, ecr.dkr, secretsmanager, logs
-- deletion_protection = true + lifecycle prevent_destroy
-- manage_master_user_password = true
-- restore_az_failure.sh validates SNAP/HOST/SECRET
+Ridgepost IaC validation — 2026-08-31 (attempt 3)
+==================================================
+
+terraform fmt -recursive modules bootstrap envs
+  (clean — RIDGEPOST_SUBMIT.tf excluded; not valid standalone HCL)
+
+bootstrap/
+  terraform init -backend=false && terraform validate
+  Success! The configuration is valid.
+
+envs/prod/
+  terraform init -backend=false && terraform validate
+  Success! The configuration is valid.
+
+python3 tests/contract.py
+  all 46 checks passed
+
+python3 scripts/build_submit_pack.py
+  Wrote RIDGEPOST_SUBMIT.tf (19794 chars)
+  Files: 21 (includes modules/compute/variables.tf + s3_secure + restore script)
+
+python3 tests/pack_contract.py
+  all 15 checks passed
+
+Key pack proofs:
+  - variable "vpc_id" in modules/compute/variables.tf section
+  - aws_lb_target_group.api vpc_id=var.vpc_id in compute section
+  - no aws_vpc.this in compute section
+  - ALB SG egress from_port=8080; ECS ingress 8080 from ALB SG
+  - restore-db-instance-from-db-snapshot in restore script section

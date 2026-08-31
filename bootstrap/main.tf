@@ -1,27 +1,9 @@
 data "aws_caller_identity" "me" {}
 
-resource "aws_s3_bucket" "state" {
-  bucket = "${var.name}-tfstate-${data.aws_caller_identity.me.account_id}"
-}
-
-resource "aws_s3_bucket_versioning" "state" {
-  bucket = aws_s3_bucket.state.id
-  versioning_configuration { status = "Enabled" }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
-  bucket = aws_s3_bucket.state.id
-  rule {
-    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "state" {
-  bucket                  = aws_s3_bucket.state.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
+module "state" {
+  source      = "../modules/s3_secure"
+  bucket_name = "${var.name}-tfstate-${data.aws_caller_identity.me.account_id}"
+  tags        = { Name = "${var.name}-tfstate" }
 }
 
 resource "aws_dynamodb_table" "lock" {
@@ -35,5 +17,5 @@ resource "aws_dynamodb_table" "lock" {
   lifecycle { prevent_destroy = true }
 }
 
-output "bucket" { value = aws_s3_bucket.state.bucket }
+output "bucket" { value = module.state.bucket_name }
 output "lock_table" { value = aws_dynamodb_table.lock.name }

@@ -1,29 +1,10 @@
 data "aws_caller_identity" "me" {}
 data "aws_region" "here" {}
 
-resource "aws_s3_bucket" "assets" {
-  bucket = "${var.name}-assets-${data.aws_caller_identity.me.account_id}"
-  tags   = { Name = "${var.name}-assets" }
-}
-
-resource "aws_s3_bucket_public_access_block" "assets" {
-  bucket                  = aws_s3_bucket.assets.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_versioning" "assets" {
-  bucket = aws_s3_bucket.assets.id
-  versioning_configuration { status = "Enabled" }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "assets" {
-  bucket = aws_s3_bucket.assets.id
-  rule {
-    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
-  }
+module "assets" {
+  source      = "../s3_secure"
+  bucket_name = "${var.name}-assets-${data.aws_caller_identity.me.account_id}"
+  tags        = { Name = "${var.name}-assets" }
 }
 
 data "aws_iam_policy_document" "ecs_assume" {
@@ -83,12 +64,12 @@ data "aws_iam_policy_document" "task" {
   statement {
     sid       = "AssetsList"
     actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.assets.arn]
+    resources = [module.assets.bucket_arn]
   }
   statement {
     sid       = "AssetsRW"
     actions   = ["s3:GetObject", "s3:PutObject"]
-    resources = ["${aws_s3_bucket.assets.arn}/*"]
+    resources = ["${module.assets.bucket_arn}/*"]
   }
 }
 
@@ -111,7 +92,7 @@ resource "aws_lb" "api" {
   subnets            = var.public_subnet_ids
 }
 
-# Target group vpc_id comes from networking module output (var.vpc_id).
+# vpc_id from envs/prod module.networking.vpc_id — NOT aws_vpc.this (networking-only resource).
 resource "aws_lb_target_group" "api" {
   name        = "${var.name}-api"
   port        = 8080
@@ -199,7 +180,7 @@ resource "aws_ecs_task_definition" "api" {
       { name = "DB_PASSWORD", valueFrom = "${var.secret_arn}:password::" }
     ]
     environment = [
-      { name = "ASSETS_BUCKET", value = aws_s3_bucket.assets.bucket },
+      { name = "ASSETS_BUCKET", value = module.assets.bucket_name },
       { name = "PORT", value = "8080" },
       { name = "DB_HOST", value = var.db_host },
       { name = "DB_NAME", value = var.db_name },

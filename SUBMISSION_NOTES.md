@@ -1,15 +1,26 @@
 # Ridgepost production Terraform — attempt 3
 
 GitHub (req 6): https://github.com/vikasoffical86/ridgepost-infra  
-Commit: **a952e23** on main. Pack matches repo (modules + bootstrap + envs/prod + restore script).
+Commit: **see pack header** on main. Pack built via `python3 scripts/build_submit_pack.py`.
 
-Evidence: `terraform validate` Success on bootstrap + envs/prod (Terraform 1.9.8).  
-`python3 tests/contract.py` — **45 PASS** (includes `var.vpc_id` in compute TG, ALB egress :8080, restore /healthz smoke test).  
+Evidence: `terraform validate` Success on bootstrap + envs/prod.  
+`python3 tests/contract.py` — **46 PASS** (source tree).  
+`python3 tests/pack_contract.py` — **15 PASS** (pasted pack only).  
 `terraform fmt -recursive` clean on modules/bootstrap/envs.  
 Screenshot: evidence/terraform-validate.png  
 No `terraform apply` against AWS from this checkout (REPLACE_ACCOUNT placeholder in backend).
 
-Tool: Cursor. Contract: `python3 tests/contract.py`.
+Tool: Cursor. Contracts: `tests/contract.py` + `tests/pack_contract.py`.
+
+## Correctness proof (from pasted pack)
+
+- `modules/compute/variables.tf` declares `variable "vpc_id"`.
+- `modules/compute/main.tf` `aws_lb_target_group.api`: `vpc_id = var.vpc_id` (not `aws_vpc.this`).
+- `envs/prod/main.tf` passes `vpc_id = module.networking.vpc_id` into `module "compute"`.
+- `modules/networking/outputs.tf` outputs `vpc_id = aws_vpc.this.id`.
+- `modules/networking/main.tf` `aws_security_group.alb` egress: `from_port = 8080` → `var.private_subnets`.
+- `modules/networking/main.tf` `aws_security_group.ecs` ingress: `8080` from `aws_security_group.alb`.
+- `aws_vpc.this` appears **only** under `modules/networking/` (separate module namespace).
 
 ## Requirements mapped
 
@@ -126,3 +137,6 @@ Finance cap: **$150/mo**.
 | apply_immediately conflict | Set `false` (maintenance window for param changes) |
 | `-least` IAM naming | Renamed `${var.name}-exec-policy` / `-task-policy` |
 | Restore script weak | Validates SNAP/HOST/SECRET; runs `terraform apply` |
+| Pack omitted compute/variables.tf | `build_submit_pack.py` + `pack_contract.py` gate paste |
+| Duplicated S3 hardening | Shared `modules/s3_secure` for bootstrap state + compute assets |
+| AI Fluency thin logs | 11 iterative Cursor prompts in submission |

@@ -133,6 +133,7 @@ resource "aws_security_group" "alb" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  # ALB terminates TLS on 443; forwards HTTP to tasks on 8080 (target group port).
   egress {
     description = "Forward to tasks in private subnets"
     from_port   = 8080
