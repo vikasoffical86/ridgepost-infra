@@ -27,8 +27,9 @@ resource "aws_subnet" "private" {
   tags              = { Name = "${var.name}-private-${var.azs[count.index]}" }
 }
 
-# Single NAT in azs[0] — budget trade-off. Both private RTs share it.
-# AZ failure of azs[0] kills egress for ALL private subnets + single-AZ RDS there.
+# Single NAT in azs[0] — deliberate budget SPOF (~$33/mo vs ~$99 for 3 NATs).
+# If azs[0] dies: ALL private subnets lose non-AWS HTTPS egress until NAT is rebuilt in another AZ.
+# Interface VPC endpoints below keep ECR/Secrets/Logs reachable without NAT (degraded mode).
 resource "aws_eip" "nat" {
   domain     = "vpc"
   depends_on = [aws_internet_gateway.this]

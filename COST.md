@@ -25,6 +25,6 @@ Rejected: Multi-AZ + 3 NATs (>$150). Second NAT (~+$33) skipped — VPCE covers 
 2. Wire new endpoint + **new** RDS-managed secret ARN into ECS (`DB_HOST` + secret ARN).
 3. Rebuild NAT in `us-east-1b` only if non-AWS HTTPS egress is required.
 
-Budget: restore **12–18 min** + secret/task-def **~2 min** + ECS `/healthz` **3–5 min** + buffer ≈ **~25 minutes**. RPO ≈ last automated snapshot / incremental.
+Budget: restore **12–18 min** + `terraform apply` **2–5 min** + ECS `/healthz` **3–5 min** + buffer ≈ **~25–35 minutes**. RPO ≈ last automated snapshot / incremental.
 
 Deployments: `deployment_minimum_healthy_percent = 100` + on-demand base — no empty target group on Spot reclaim.

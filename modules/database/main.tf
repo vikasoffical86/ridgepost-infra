@@ -27,7 +27,7 @@ resource "aws_db_instance" "this" {
   final_snapshot_identifier    = "${var.name}-db-final"
   copy_tags_to_snapshot        = true
   performance_insights_enabled = false
-  apply_immediately            = true
+  apply_immediately            = false
 
   lifecycle {
     prevent_destroy = true

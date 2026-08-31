@@ -3,6 +3,7 @@ terraform {
   required_providers {
     aws = { source = "hashicorp/aws", version = "~> 5.70" }
   }
+  # Canonical backend values live in envs/prod/backend.hcl (passed to terraform init).
   backend "s3" {
     bucket         = "ridgepost-tfstate-REPLACE_ACCOUNT"
     key            = "ridgepost/prod/terraform.tfstate"
@@ -34,11 +35,19 @@ variable "container_image" {
   description = "ECR image URI for ridgepost-api (USER 65532)."
 }
 
-# After AZ restore: set these so terraform apply re-wires ECS without state drift.
+# DR mode after AZ failure: set BOTH so terraform apply re-wires ECS task env/secrets.
+# Original aws_db_instance.this stays in state (prevent_destroy); restored instance is external.
 variable "restored_db_host" {
   type     = string
   default  = null
   nullable = true
+  validation {
+    condition = (
+      (var.restored_db_host == null && var.restored_secret_arn == null) ||
+      (var.restored_db_host != null && var.restored_secret_arn != null)
+    )
+    error_message = "DR mode: set BOTH restored_db_host and restored_secret_arn, or leave both unset."
+  }
 }
 
 variable "restored_secret_arn" {

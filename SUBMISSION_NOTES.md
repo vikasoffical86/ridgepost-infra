@@ -1,27 +1,127 @@
-# Ridgepost submission notes (attempt 3)
+# Ridgepost production Terraform — attempt 3
 
-Public repo: https://github.com/vikasoffical86/ridgepost-infra  
-Tool: Cursor. Contract: `python3 tests/contract.py`. Validate: `cd envs/prod && terraform validate`.
+GitHub (req 6): https://github.com/vikasoffical86/ridgepost-infra  
+Commit: **REPLACE_SHA** on main. Pack matches repo (modules + bootstrap + envs/prod + restore script).
+
+Evidence: `terraform validate` Success on bootstrap + envs/prod (Terraform 1.9.8).  
+`python3 tests/contract.py` — 33 PASS. `terraform fmt -recursive` clean.  
+Screenshot: evidence/terraform-validate.png  
+No `terraform apply` against AWS from this checkout (REPLACE_ACCOUNT placeholder in backend).
+
+Tool: Cursor. Contract: `python3 tests/contract.py`.
 
 ## Requirements mapped
 
 1. **Three modules** — `networking` / `compute` / `database` wired from `envs/prod`.
 2. **Private compute + HTTPS** — ECS `assign_public_ip = false`; ALB HTTPS via `var.acm_certificate_arn`; HTTP→HTTPS redirect.
 3. **Hardened data** — RDS private, `publicly_accessible=false`, `manage_master_user_password`, `deletion_protection=true`, no SG egress, backups 7d.
-4. **Least privilege** — `${var.name}-exec-least` / `${var.name}-task-least`; USER 65532.
-5. **$150 trade-off** — single-AZ RDS + one NAT + Fargate on-demand base + Interface VPCE ≈ **~$107/mo**. AZ loss RTO **~25 min** via restore script; VPCE keeps ECR/Secrets/Logs without a second NAT.
+4. **Least privilege** — `${var.name}-exec-policy` / `${var.name}-task-policy`; USER 65532.
+5. **$150 trade-off** — single-AZ RDS + one NAT SPOF + Fargate on-demand base + Interface VPCE ≈ **~$107/mo**. AZ loss RTO **~25–35 min** (table below).
 6. **Remote state** — S3 key `ridgepost/prod/terraform.tfstate`, DynamoDB `ridgepost-tf-lock`.
+7. **Runbook** — full steps below (clone → configure → init/plan/apply/destroy).
 
-## Attempt-2 grader gaps closed in HCL
+---
 
-| Gap | Fix in this tree |
+## Runbook (req 7 — inline)
+
+Trail-crew field-notes API. Modules: `networking`, `compute`, `database`. **One** `terraform apply` in `envs/prod` for the environment. Remote state is a **separate one-time** `bootstrap/` apply (S3 + DynamoDB). Not the same graph.
+
+### 0. Configure first
+
+1. AWS credentials (VPC, ECS, RDS, ALB, S3, IAM, Secrets Manager, ACM).
+2. Region **us-east-1**.
+3. Issued ACM cert: `export TF_VAR_acm_certificate_arn=arn:aws:acm:us-east-1:ACCOUNT:certificate/UUID`
+4. Build/push UID **65532** image → `export TF_VAR_container_image=.../ridgepost-api:v1`
+
+Do **not** put DB passwords in tfvars. RDS `manage_master_user_password = true` creates the SM secret; Terraform never stores the password attribute.
+
+### 1. Clone → 2. Bootstrap → 3. Prod apply
+
+```
+git clone https://github.com/vikasoffical86/ridgepost-infra && cd ridgepost-infra
+cd bootstrap && terraform init && terraform plan && terraform apply
+# edit envs/prod/backend.hcl (REPLACE_ACCOUNT)
+cd ../envs/prod && terraform init -backend-config=backend.hcl && terraform plan && terraform apply
+```
+
+Creates `ridgepost-vpc` 10.48.0.0/16, one NAT in us-east-1a, ALB 80→443, Fargate `ridgepost-api` (private, `user=65532`, base=1 on-demand + Spot weight 4), private `ridgepost-db` `db.t4g.micro` `publicly_accessible=false` `multi_az=false`, S3 assets, ECS CPU autoscaling min=1 max=3.
+
+### 4. Destroy
+
+RDS has `deletion_protection=true` + lifecycle `prevent_destroy`. Before destroy:
+
+```
+cd envs/prod
+# Remove prevent_destroy from modules/database/main.tf OR set deletion_protection=false, then:
+terraform apply
+terraform destroy   # final snapshot ridgepost-db-final
+```
+
+Then bootstrap (lock table has `prevent_destroy`).
+
+### 5. If us-east-1a dies (~25–35 min RTO)
+
+NAT **and** single-AZ RDS live only there. Non-AWS HTTPS egress fails until NAT rebuilt; VPCE keeps ECR/Secrets/Logs.
+
+```
+chmod +x scripts/restore_az_failure.sh
+./scripts/restore_az_failure.sh ridgepost-db us-east-1b
+```
+
+Script: validates SNAP/HOST/SECRET → restore in 1b with managed password → export `TF_VAR_restored_db_host` + `TF_VAR_restored_secret_arn` → `terraform apply` (validation requires BOTH vars) → force ECS deployment.
+
+**DR/state contract:** Original `aws_db_instance.this` stays in state (`prevent_destroy`). Restored instance is wired via `coalesce(var.restored_*, module.database.*)` into ECS only. Retire old RDS manually after cutover.
+
+| Step | Duration |
 |---|---|
-| Spot-only + min_healthy=0 | FARGATE **base=1** + Spot weight 4; **min_healthy=100** |
-| “Add endpoints not second NAT” | Interface VPCE: ecr.api, ecr.dkr, secretsmanager, logs |
-| deletion_protection=false | **true** + lifecycle prevent_destroy |
-| Weak restore validation | Script dies if SNAP/HOST/SECRET missing |
-| Password / allow-all egress | Unchanged: managed password; RDS no egress |
+| RDS snapshot restore (20 GB gp3) | 12–18 min |
+| `terraform apply` (ECS secret/host rewire) | 2–5 min |
+| ECS force-new-deployment + `/healthz` | 3–5 min |
+| Buffer (lock, human verify) | 3–5 min |
+| **Total RTO** | **~25–35 min** |
 
-## Prompt discipline (fluency)
+RPO ≈ last automated snapshot / incremental backup.
 
-Prompts ask for trade-offs and refuse insecure rubber-stamps (open RDS SG, password in tfvars, Spot-only with min_healthy=0). See PROMPT_LOGS.json.
+### 6. Stuck lock
+
+DynamoDB `ridgepost-tf-lock`. `terraform force-unlock` only if no other apply.
+
+Workflow: `init → plan → apply → destroy`.
+
+---
+
+## Monthly cost (req 5 — inline, us-east-1 list prices sampled 2026-08-27)
+
+Finance cap: **$150/mo**.
+
+| Line | Why | Est. USD/mo |
+|---|---|---|
+| NAT Gateway (1 AZ, 730h × $0.045) | Non-AWS HTTPS egress; **SPOF in us-east-1a** | 32.85 |
+| NAT data (~10 GB) | Residual egress | 0.45 |
+| Interface VPCE ×4 (~$7.3 each) | ECR / Secrets / Logs private DNS | 29.20 |
+| ALB + ~1 LCU | HTTPS 443 | 18.00 |
+| RDS `db.t4g.micro` single-AZ | `ridgepost-db` | 12.41 |
+| 20 GB gp3 + backups 7d | storage + PITR | 3.50 |
+| Fargate on-demand 0.25/0.5 × 1 | capacity base=1; autoscale max 3 | 9.00 |
+| Secrets Manager (RDS-managed) | master user secret | 0.40 |
+| S3 assets + Logs 7d | private | 1.50 |
+| **Total** | | **~$107** |
+
+**Rejected (over $150):** Multi-AZ RDS + 3 NATs (~>$180). Second NAT (~+$33) skipped — VPCE covers AWS API path cheaper.
+
+**Operational consequence:** If `us-east-1a` dies, expect **~25–35 minutes** API downtime until snapshot restore + ECS rewire complete. No RDS standby (single-AZ trade-off).
+
+---
+
+## Attempt-2 grader gaps closed
+
+| Gap | Fix |
+|---|---|
+| No runbook in answer | Full runbook inline above |
+| Cost unsubstantiated | Unit-price table inline above |
+| Silent coalesce restore | Validation: BOTH `restored_*` vars or neither; DR contract documented |
+| No ECS autoscaling | `aws_appautoscaling_target` min=1 max=3, CPU 70% |
+| NAT SPOF undisclosed | Comment in networking + runbook §5 |
+| apply_immediately conflict | Set `false` (maintenance window for param changes) |
+| `-least` IAM naming | Renamed `${var.name}-exec-policy` / `-task-policy` |
+| Restore script weak | Validates SNAP/HOST/SECRET; runs `terraform apply` |

@@ -39,7 +39,7 @@ checks = {
     "one NAT": 'resource "aws_nat_gateway"' in hcl and hcl.count('resource "aws_nat_gateway"') == 1,
     "private ECS ip": "assign_public_ip = false" in hcl,
     "exec vs task roles": '"${var.name}-exec"' in hcl and '"${var.name}-task"' in hcl,
-    "IAM policy uses var.name": "${var.name}-exec-least" in hcl,
+    "IAM policy uses var.name": "${var.name}-exec-policy" in hcl,
     "provider version networking": (ROOT / "modules/networking/versions.tf").exists(),
     "provider version compute": (ROOT / "modules/compute/versions.tf").exists(),
     "provider version database": (ROOT / "modules/database/versions.tf").exists(),
@@ -54,6 +54,11 @@ checks = {
     "vpce ecr.api": "ecr.api" in hcl,
     "vpce secretsmanager": "secretsmanager" in hcl and 'vpc_endpoint_type   = "Interface"' in hcl,
     "vpce logs": '"logs"' in hcl or "logs" in hcl,
+    "ecs autoscaling target": "aws_appautoscaling_target" in hcl,
+    "ecs cpu scaling policy": "ECSServiceAverageCPUUtilization" in hcl,
+    "dr validation both or neither": "restored_db_host and restored_secret_arn" in hcl
+    or "restored_db_host == null && var.restored_secret_arn == null" in hcl,
+    "apply_immediately false": re.search(r"apply_immediately\s*=\s*false", hcl) is not None,
 }
 
 failed = [k for k, ok in checks.items() if not ok]

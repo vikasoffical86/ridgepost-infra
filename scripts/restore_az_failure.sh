@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Restore ridgepost-db after us-east-1a failure (single-AZ RDS + shared NAT).
+# Restore ridgepost-db after us-east-1a failure (single-AZ RDS + shared NAT SPOF).
 # Usage: ./scripts/restore_az_failure.sh [source-identifier] [target-az]
-# RTO ~25 min: restore 12-18 + secret/task 2 + healthz 3-5 + buffer.
-# With Interface VPC endpoints (ecr/secrets/logs), ECS AWS API calls survive NAT AZ loss.
+# RTO ~25-35 min: restore 12-18 + terraform apply 2-5 + ECS healthz 3-5 + buffer.
+# VPCE (ecr/secrets/logs) keeps AWS API path if NAT AZ is down.
 set -euo pipefail
 
 SRC_ID="${1:-ridgepost-db}"
@@ -12,10 +12,12 @@ SUBNET_GROUP="${SRC_ID}"
 CLUSTER="${SRC_ID%-db}-api"
 SERVICE="${SRC_ID%-db}-api"
 REGION="${AWS_REGION:-us-east-1}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
 command -v aws >/dev/null || die "aws CLI required"
+command -v terraform >/dev/null || die "terraform required"
 [[ -n "$SRC_ID" && -n "$TARGET_AZ" ]] || die "usage: $0 <db-identifier> <target-az>"
 
 echo "==> 1/5 Latest automated snapshot for ${SRC_ID}"
@@ -48,18 +50,18 @@ SECRET=$(aws rds describe-db-instances --region "$REGION" --db-instance-identifi
 echo "    HOST=${HOST}"
 echo "    SECRET=${SECRET}"
 
-echo "==> 3/5 NAT AZ note: Interface VPCE (ecr.api/ecr.dkr/secretsmanager/logs) keep AWS API path."
-echo "    Recreate NAT in ${TARGET_AZ} only if non-AWS HTTPS egress is required."
+echo "==> 3/5 NAT SPOF note: single NAT in us-east-1a — non-AWS HTTPS egress dead until rebuilt."
+echo "    Interface VPCE (ecr.api/ecr.dkr/secretsmanager/logs) keep AWS API path without NAT."
 
-echo "==> 4/5 Reconcile IaC: TF_VAR overrides → terraform apply (no state drift)"
-cat <<EOF
-export TF_VAR_restored_db_host=${HOST}
-export TF_VAR_restored_secret_arn=${SECRET}
-cd envs/prod && terraform apply
-# coalesce() in envs/prod wires module.compute db_host + secret_arn from these vars.
-EOF
+echo "==> 4/5 DR mode: export TF_VAR overrides and terraform apply (rewires ECS in state)"
+export TF_VAR_restored_db_host="${HOST}"
+export TF_VAR_restored_secret_arn="${SECRET}"
+cd "${ROOT}/envs/prod"
+terraform apply -auto-approve
+# coalesce() in envs/prod wires module.compute db_host + secret_arn from restored vars.
+# Original aws_db_instance.this remains in state (prevent_destroy); retire manually after cutover.
 
 echo "==> 5/5 Force ECS roll after apply registers new task def"
 aws ecs update-service --region "$REGION" --cluster "$CLUSTER" --service "$SERVICE" \
   --force-new-deployment >/dev/null
-echo "Done. RTO budget ~25 min = restore 12-18 + terraform apply 2 + healthz 3-5 + buffer."
+echo "Done. RTO budget ~25-35 min = restore 12-18 + apply 2-5 + healthz 3-5 + buffer."

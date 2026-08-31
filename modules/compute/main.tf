@@ -69,7 +69,7 @@ data "aws_iam_policy_document" "exec" {
 }
 
 resource "aws_iam_role_policy" "exec" {
-  name   = "${var.name}-exec-least"
+  name   = "${var.name}-exec-policy"
   role   = aws_iam_role.exec.id
   policy = data.aws_iam_policy_document.exec.json
 }
@@ -93,7 +93,7 @@ data "aws_iam_policy_document" "task" {
 }
 
 resource "aws_iam_role_policy" "task" {
-  name   = "${var.name}-task-least"
+  name   = "${var.name}-task-policy"
   role   = aws_iam_role.task.id
   policy = data.aws_iam_policy_document.task.json
 }
@@ -253,4 +253,29 @@ resource "aws_ecs_service" "api" {
   deployment_maximum_percent         = 200
   propagate_tags                     = "SERVICE"
   depends_on                         = [aws_lb_listener.https, aws_ecs_cluster_capacity_providers.this]
+}
+
+# Scale-out on CPU; min=1 keeps budget baseline (~$9/mo on-demand task).
+resource "aws_appautoscaling_target" "ecs" {
+  max_capacity       = 3
+  min_capacity       = 1
+  resource_id        = "service/${aws_ecs_cluster.this.name}/${aws_ecs_service.api.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "cpu" {
+  name               = "${var.name}-api-cpu"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.ecs.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs.service_namespace
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    target_value       = 70
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
 }
