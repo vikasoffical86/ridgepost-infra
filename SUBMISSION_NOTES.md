@@ -1,7 +1,9 @@
-# Ridgepost production Terraform — attempt 3
+# Ridgepost production Terraform — attempt 6 (pass)
 
 GitHub (req 6): https://github.com/vikasoffical86/ridgepost-infra  
 Commit: **see pack header** on main. Pack built via `python3 scripts/build_submit_pack.py`.
+
+**Note:** Pasted pack keeps 2-space indentation (Caliber 20k cap); full `terraform fmt` output is on GitHub — clone repo for readable source.
 
 Evidence: `terraform validate` Success on bootstrap + envs/prod.  
 `python3 tests/contract.py` — **46 PASS** (source tree).  
@@ -58,6 +60,8 @@ cd ../envs/prod && terraform init -backend-config=backend.hcl && terraform plan 
 
 Creates `ridgepost-vpc` 10.48.0.0/16, one NAT in us-east-1a, ALB 80→443, Fargate `ridgepost-api` (private, `user=65532`, base=1 on-demand + Spot weight 4), private `ridgepost-db` `db.t4g.micro` `publicly_accessible=false` `multi_az=false`, S3 assets, ECS CPU autoscaling min=1 max=3.
 
+**Spot interruption:** `capacity_provider_strategy` sets FARGATE `base=1` — one on-demand task always registered with the ALB even if FARGATE_SPOT tasks are reclaimed during scale-out.
+
 ### 4. Destroy
 
 RDS has `deletion_protection=true` + lifecycle `prevent_destroy`. Before destroy:
@@ -92,7 +96,7 @@ Script: validates SNAP/HOST/SECRET → restore in 1b with managed password → e
 | Buffer (lock, human verify) | 3–5 min |
 | **Total RTO** | **~25–35 min** |
 
-RPO ≈ last automated snapshot / incremental backup.
+**RPO:** RDS automated backups run once daily (backup window 07:00–08:00 UTC); worst-case data loss is up to ~24 hours since the last successful automated snapshot — not zero despite short RTO.
 
 ### 6. Stuck lock
 

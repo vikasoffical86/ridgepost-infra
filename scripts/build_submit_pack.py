@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build RIDGEPOST_SUBMIT.tf minified pack for Caliber (max 20000 chars)."""
+"""Build RIDGEPOST_SUBMIT.tf pack for Caliber (max 20000 chars, indented)."""
 from __future__ import annotations
 
 import re
@@ -64,12 +64,15 @@ def git_commit() -> str:
 
 
 def minify_tf(text: str) -> str:
+    """Strip comments/blanks; keep indent levels; collapse spaces around =."""
     out: list[str] = []
     for line in text.splitlines():
-        s = line.strip()
-        if not s or s.startswith("#"):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
             continue
-        out.append(re.sub(r"\s*=\s*", "=", s))
+        level = (len(line) - len(line.lstrip())) // 2
+        content = re.sub(r"\s*=\s*", "=", stripped)
+        out.append("  " * level + content)
     return "\n".join(out)
 
 
@@ -89,7 +92,7 @@ def build(file_list: list[str], commit: str) -> str:
 
 
 def pick_restore(base_files: list[str], commit: str) -> tuple[list[str], str]:
-    for restore in (RESTORE_FULL, RESTORE_PACK):
+    for restore in (RESTORE_PACK, RESTORE_FULL):
         trial_files = base_files + [restore]
         trial = build(trial_files, commit)
         if len(trial) <= MAX_CHARS:

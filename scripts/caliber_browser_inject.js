@@ -1,7 +1,7 @@
 // Paste into browser DevTools console on the Caliber submission form.
 // Fetches attempt-3 pack + notes from GitHub raw; adds 11 Cursor prompt logs.
 (async () => {
-  const REF = 'b14323c';
+  const REF = 'aee79b1'; // pack + notes commit (header bb13010)
   const setVal = (el, val) => {
     const d = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
     d.set.call(el, val);
