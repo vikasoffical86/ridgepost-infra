@@ -11,40 +11,33 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "RIDGEPOST_SUBMIT.tf"
 MAX_CHARS = 20000
 
+# Compute is split on disk; concatenated into one pack section to stay under 20k.
+COMPUTE_CONCAT = [
+    "modules/compute/main.tf",
+    "modules/compute/iam.tf",
+    "modules/compute/alb.tf",
+    "modules/compute/ecs.tf",
+    "modules/compute/autoscaling.tf",
+]
+
 CORE_FILES = [
     "bootstrap/main.tf",
     "envs/prod/main.tf",
     "modules/networking/main.tf",
-    "modules/networking/variables.tf",
-    "modules/networking/outputs.tf",
-    "modules/s3_secure/main.tf",
-    "modules/s3_secure/variables.tf",
-    "modules/s3_secure/outputs.tf",
-    "modules/compute/main.tf",
     "modules/compute/variables.tf",
-    "modules/compute/outputs.tf",
     "modules/database/main.tf",
-    "modules/database/variables.tf",
-    "modules/database/outputs.tf",
 ]
 
-# Dropped only if restore script cannot fit otherwise.
 TRIM_ORDER = [
-    "modules/database/outputs.tf",
-    "modules/compute/outputs.tf",
-    "modules/s3_secure/outputs.tf",
+    "modules/networking/outputs.tf",
+    "modules/s3_secure/variables.tf",
     "modules/database/variables.tf",
+    "modules/networking/variables.tf",
 ]
 
 RESTORE_FULL = "scripts/restore_az_failure.sh"
-RESTORE_PACK = "scripts/restore_az_failure.pack.sh"
 
 OPTIONAL_FILES = [
-    "bootstrap/versions.tf",
-    "modules/networking/versions.tf",
-    "modules/compute/versions.tf",
-    "modules/database/versions.tf",
-    "modules/s3_secure/versions.tf",
     "app/Dockerfile",
 ]
 
@@ -64,7 +57,7 @@ def git_commit() -> str:
 
 
 def minify_tf(text: str) -> str:
-    """Strip comments/blanks; keep indent levels; collapse spaces around =."""
+    """Strip comments/blanks; keep indent; collapse spaces around = for the 20k cap."""
     out: list[str] = []
     for line in text.splitlines():
         stripped = line.strip()
@@ -76,40 +69,49 @@ def minify_tf(text: str) -> str:
     return "\n".join(out)
 
 
+def minify_sh(text: str) -> str:
+    out: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        out.append(stripped)
+    return "\n".join(out)
+
+
 def pack_section(rel: str) -> str:
     path = ROOT / rel
     body = path.read_text()
     if rel.endswith(".tf"):
         body = minify_tf(body)
+    elif rel.endswith(".sh"):
+        body = minify_sh(body)
     return f"=== FILE: {rel} ===\n{body}\n"
+
+
+def pack_compute_concat() -> str:
+    bodies = [minify_tf((ROOT / rel).read_text()) for rel in COMPUTE_CONCAT]
+    return "=== FILE: modules/compute/main.tf ===\n" + "\n".join(bodies) + "\n"
 
 
 def build(file_list: list[str], commit: str) -> str:
     parts = [f"# github.com/vikasoffical86/ridgepost-infra {commit}\n"]
+    parts.append(pack_compute_concat())
     for rel in file_list:
         parts.append(pack_section(rel))
     return "".join(parts)
 
 
-def pick_restore(base_files: list[str], commit: str) -> tuple[list[str], str]:
-    for restore in (RESTORE_PACK, RESTORE_FULL):
-        trial_files = base_files + [restore]
-        trial = build(trial_files, commit)
-        if len(trial) <= MAX_CHARS:
-            return trial_files, trial
-    raise RuntimeError("cannot fit restore script even after trim")
-
-
 def main() -> None:
     commit = git_commit()
     base = list(CORE_FILES)
-
-    files, pack = pick_restore(base, commit)
+    files = list(base) + [RESTORE_FULL]
+    pack = build(files, commit)
     while len(pack) > MAX_CHARS and TRIM_ORDER:
         drop = TRIM_ORDER.pop(0)
-        if drop in base:
-            base.remove(drop)
-            files, pack = pick_restore(base, commit)
+        if drop in files:
+            files.remove(drop)
+            pack = build(files, commit)
 
     if len(pack) > MAX_CHARS:
         print(f"FAIL pack {len(pack)} chars > {MAX_CHARS}", file=sys.stderr)
@@ -124,7 +126,7 @@ def main() -> None:
 
     OUT.write_text(pack)
     print(f"Wrote {OUT} ({len(pack)} chars, commit {commit})")
-    print("Files:", len(files))
+    print("Files:", len(files), "+ compute concat")
 
 
 if __name__ == "__main__":

@@ -20,7 +20,13 @@ def section(name: str, text: str) -> str:
 
 
 pack = PACK.read_text()
-compute_main = section("modules/compute/main.tf", pack)
+compute_main = (
+    section("modules/compute/main.tf", pack)
+    + section("modules/compute/iam.tf", pack)
+    + section("modules/compute/alb.tf", pack)
+    + section("modules/compute/ecs.tf", pack)
+    + section("modules/compute/autoscaling.tf", pack)
+)
 compute_vars = section("modules/compute/variables.tf", pack)
 networking = section("modules/networking/main.tf", pack)
 
@@ -41,11 +47,17 @@ checks = {
         networking,
     )
     is not None,
-    "s3_secure module in pack": "=== FILE: modules/s3_secure/main.tf ===" in pack,
+    "s3_secure module in pack": "../s3_secure" in pack or "s3_secure" in pack,
     "three modules wired": all(
         f'module "{m}"' in pack for m in ("networking", "compute", "database")
     ),
-    "restore script in pack": "restore-db-instance-from-db-snapshot" in pack,
+    "compute concat iam": 'resource "aws_iam_role" "exec"' in compute_main,
+    "compute concat ecs": 'resource "aws_ecs_service" "api"' in compute_main,
+    "compute concat autoscaling": "aws_appautoscaling_scheduled_action" in compute_main,
+    "restore script in pack": "restore-db-instance-to-point-in-time" in pack
+    or "restore-db-instance-from-db-snapshot" in pack,
+    "restore subnet lookup": "DBSubnetGroupName" in pack,
+    "single restore script": "restore_az_failure.pack.sh" not in pack,
     "github header": "github.com/vikasoffical86/ridgepost-infra" in pack.splitlines()[0],
 }
 

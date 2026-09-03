@@ -95,3 +95,6 @@ output "assets_bucket" { value = module.compute.assets_bucket }
 output "db_endpoint" { value = module.database.endpoint }
 output "db_secret_arn" { value = module.database.secret_arn }
 output "nat_az" { value = module.networking.nat_az }
+output "dr_mode" {
+  value = var.restored_db_host == null ? "off" : "WARNING DR MODE: ECS DB_HOST=${var.restored_db_host} (not module.database). Retire original ridgepost-db after cutover."
+}

@@ -16,7 +16,10 @@ backend = (ROOT / "envs/prod/backend.hcl").read_text()
 dockerfile = (ROOT / "app/Dockerfile").read_text()
 restore = (ROOT / "scripts/restore_az_failure.sh").read_text()
 
-compute_main = (ROOT / "modules/compute/main.tf").read_text()
+compute_dir = ROOT / "modules/compute"
+compute_main = "\n".join(
+    p.read_text() for p in sorted(compute_dir.glob("*.tf")) if p.name != "versions.tf"
+)
 compute_code = "\n".join(
     ln for ln in compute_main.splitlines() if ln.strip() and not ln.strip().startswith("#")
 )
@@ -48,8 +51,13 @@ checks = {
     "provider version networking": (ROOT / "modules/networking/versions.tf").exists(),
     "provider version compute": (ROOT / "modules/compute/versions.tf").exists(),
     "provider version database": (ROOT / "modules/database/versions.tf").exists(),
-    "restore script": "restore-db-instance-from-db-snapshot" in restore,
-    "restore validates SNAP": 'die "no automated snapshot' in restore or "no automated snapshot" in restore,
+    "restore script": "restore-db-instance-to-point-in-time" in restore
+    or "restore-db-instance-from-db-snapshot" in restore,
+    "restore looks up subnet group": "DBSubnetGroupName" in restore,
+    "restore flock": "flock -n 9" in restore,
+    "restore PITR": "use-latest-restorable-time" in restore,
+    "restore DR warning": "WARNING: DR MODE" in restore,
+    "restore validates SNAP": "no snapshot" in restore or "no automated snapshot" in restore,
     "startPeriod 60": "startPeriod = 60" in hcl or "startPeriod             = 60" in hcl,
     "compute depends_on database": "depends_on = [module.database]" in hcl,
     "deletion_protection true": re.search(r"deletion_protection\s*=\s*true", hcl) is not None,
@@ -61,6 +69,11 @@ checks = {
     "vpce logs": '"logs"' in hcl or "logs" in hcl,
     "ecs autoscaling target": "aws_appautoscaling_target" in hcl,
     "ecs cpu scaling policy": "ECSServiceAverageCPUUtilization" in hcl,
+    "scheduled peak up": "peak-up" in hcl or "peak_up" in hcl,
+    "compute split iam/alb/ecs": (ROOT / "modules/compute/iam.tf").exists()
+    and (ROOT / "modules/compute/alb.tf").exists()
+    and (ROOT / "modules/compute/ecs.tf").exists(),
+    "dr mode output": "dr_mode" in hcl,
     "dr validation both or neither": "restored_db_host and restored_secret_arn" in hcl
     or "restored_db_host == null && var.restored_secret_arn == null" in hcl,
     "apply_immediately false": re.search(r"apply_immediately\s*=\s*false", hcl) is not None,

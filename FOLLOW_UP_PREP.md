@@ -2,7 +2,9 @@
 
 **Read this before follow-up. Type answers YOURSELF in the browser. 3–5 minutes per question minimum.**
 
-Identifiers: Ridgepost, vpc 10.48.0.0/16, modules networking/compute/database/s3_secure, USER 65532, cluster/service ridgepost-api, RDS ridgepost-db, NAT us-east-1a SPOF, VPCE ecr.api/ecr.dkr/secretsmanager/logs, backend ridgepost-tf-lock, ~$107/mo, RTO 25–35 min.
+Identifiers: Ridgepost, vpc 10.48.0.0/16, modules networking/compute/database/s3_secure, USER 65532, cluster/service ridgepost-api, RDS ridgepost-db, NAT us-east-1a SPOF, VPCE ecr.api/ecr.dkr/secretsmanager/logs, backend ridgepost-tf-lock, ~$107/mo, RTO 25–35 min, **RPO PITR ~5 min**.
+
+**This round:** PITR first (`use-latest-restorable-time`), subnet group from describe, `flock -n`, `output.dr_mode`, compute split iam/alb/ecs/autoscaling, weekday peak max=5.
 
 **Rule:** Never deny the grader. Always answer the **full** question including "write the Terraform/script" when asked.
 
